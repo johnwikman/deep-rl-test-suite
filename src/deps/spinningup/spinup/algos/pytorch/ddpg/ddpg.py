@@ -4,8 +4,9 @@ import torch
 from torch.optim import Adam
 import gym
 import time
-import spinup.algos.pytorch.ddpg.core as core
-from spinup.utils.logx import EpochLogger
+#import spinup.algos.pytorch.ddpg.core as core
+from . import core
+from ....utils.logx import EpochLogger
 
 
 class ReplayBuffer:

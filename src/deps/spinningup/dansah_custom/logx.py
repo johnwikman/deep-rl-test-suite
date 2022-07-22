@@ -9,13 +9,13 @@ import json
 import joblib
 import shutil
 import numpy as np
-import tensorflow.compat.v1 as tf
-tf.disable_v2_behavior()
+#import tensorflow.compat.v1 as tf
+#tf.disable_v2_behavior()
 import torch
 import os.path as osp, time, atexit, os
 import warnings
-from spinup.utils.mpi_tools import proc_id, mpi_statistics_scalar
-from spinup.utils.serialization_utils import convert_json
+from ..spinup.utils.mpi_tools import proc_id, mpi_statistics_scalar
+from ..spinup.utils.serialization_utils import convert_json
 
 color2num = dict(
     gray=30,
@@ -42,32 +42,32 @@ def colorize(string, color, bold=False, highlight=False):
     if bold: attr.append('1')
     return '\x1b[%sm%s\x1b[0m' % (';'.join(attr), string)
 
-def restore_tf_graph(sess, fpath):
-    """
-    Loads graphs saved by Logger.
-
-    Will output a dictionary whose keys and values are from the 'inputs' 
-    and 'outputs' dict you specified with logger.setup_tf_saver().
-
-    Args:
-        sess: A Tensorflow session.
-        fpath: Filepath to save directory.
-
-    Returns:
-        A dictionary mapping from keys to tensors in the computation graph
-        loaded from ``fpath``. 
-    """
-    tf.saved_model.loader.load(
-                sess,
-                [tf.saved_model.tag_constants.SERVING],
-                fpath
-            )
-    model_info = joblib.load(osp.join(fpath, 'model_info.pkl'))
-    graph = tf.get_default_graph()
-    model = dict()
-    model.update({k: graph.get_tensor_by_name(v) for k,v in model_info['inputs'].items()})
-    model.update({k: graph.get_tensor_by_name(v) for k,v in model_info['outputs'].items()})
-    return model
+#def restore_tf_graph(sess, fpath):
+#    """
+#    Loads graphs saved by Logger.
+#
+#    Will output a dictionary whose keys and values are from the 'inputs' 
+#    and 'outputs' dict you specified with logger.setup_tf_saver().
+#
+#    Args:
+#        sess: A Tensorflow session.
+#        fpath: Filepath to save directory.
+#
+#    Returns:
+#        A dictionary mapping from keys to tensors in the computation graph
+#        loaded from ``fpath``. 
+#    """
+#    tf.saved_model.loader.load(
+#                sess,
+#                [tf.saved_model.tag_constants.SERVING],
+#                fpath
+#            )
+#    model_info = joblib.load(osp.join(fpath, 'model_info.pkl'))
+#    graph = tf.get_default_graph()
+#    model = dict()
+#    model.update({k: graph.get_tensor_by_name(v) for k,v in model_info['inputs'].items()})
+#    model.update({k: graph.get_tensor_by_name(v) for k,v in model_info['outputs'].items()})
+#    return model
 
 class Logger:
     """
@@ -222,17 +222,17 @@ class Logger:
         Uses simple_save to save a trained model, plus info to make it easy
         to associated tensors to variables after restore. 
         """
-        if proc_id()==0:
-            assert hasattr(self, 'tf_saver_elements'), \
-                "First have to setup saving with self.setup_tf_saver"
-            fpath = 'tf1_save' + ('%d'%itr if itr is not None else '')
-            fpath = osp.join(self.output_dir, fpath)
-            if osp.exists(fpath):
-                # simple_save refuses to be useful if fpath already exists,
-                # so just delete fpath if it's there.
-                shutil.rmtree(fpath)
-            tf.saved_model.simple_save(export_dir=fpath, **self.tf_saver_elements)
-            joblib.dump(self.tf_saver_info, osp.join(fpath, 'model_info.pkl'))
+        #if proc_id()==0:
+        #    assert hasattr(self, 'tf_saver_elements'), \
+        #        "First have to setup saving with self.setup_tf_saver"
+        #    fpath = 'tf1_save' + ('%d'%itr if itr is not None else '')
+        #    fpath = osp.join(self.output_dir, fpath)
+        #    if osp.exists(fpath):
+        #        # simple_save refuses to be useful if fpath already exists,
+        #        # so just delete fpath if it's there.
+        #        shutil.rmtree(fpath)
+        #    tf.saved_model.simple_save(export_dir=fpath, **self.tf_saver_elements)
+        #    joblib.dump(self.tf_saver_info, osp.join(fpath, 'model_info.pkl'))
     
 
     def setup_pytorch_saver(self, what_to_save):

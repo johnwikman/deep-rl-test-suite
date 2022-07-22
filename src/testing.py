@@ -20,8 +20,8 @@ from result_maker import make_html
 
 import torch.nn as nn
 
-import tensorflow.compat.v1 as tf
-tf.disable_v2_behavior()
+#import tensorflow.compat.v1 as tf
+#tf.disable_v2_behavior()
 import numpy as np
 import os
 import pickle
@@ -206,7 +206,7 @@ def make_env_qube2_real():
 ######################
 # Training functions #
 ######################
-def create_ac_kwargs(mlp_architecture=[64,64], activation_func=tf.nn.relu, arch_dict=dict(), env_dict=dict(), output_dir="", xtra_args=False):
+def create_ac_kwargs(mlp_architecture=[64,64], activation_func=None, arch_dict=dict(), env_dict=dict(), output_dir="", xtra_args=False):
     """
     Creates the ac_kwargs dictionary used by the algorithms (primarily the Spin Up ones).
     If xtra_args is True, some extra key-value pairs are added that SLM algorithms use.
@@ -240,13 +240,13 @@ def train_algorithm(alg_dict, arch_dict, env_dict, seed=0):
     if alg_dict.get('specific'):
         alg_specific_params = alg_dict['specific']
 
-    if alg_dict['type'] == 'baselines': # Only type using Tensorflow
-        with tf.Graph().as_default():
-            algorithm_fn(env_fn=env_fn, ac_kwargs=ac_kwargs, max_ep_len=max_ep_len, steps_per_epoch=alg_dict['training_frequency'], 
-                         min_env_interactions=MIN_ENV_INTERACTIONS, logger_kwargs=logger_kwargs, seed=seed, **alg_specific_params)
-    else:
-        algorithm_fn(env_fn=env_fn, ac_kwargs=ac_kwargs, max_ep_len=max_ep_len, steps_per_epoch=alg_dict['training_frequency'], 
-                     min_env_interactions=MIN_ENV_INTERACTIONS, logger_kwargs=logger_kwargs, seed=seed, **alg_specific_params)
+    #if alg_dict['type'] == 'baselines': # Only type using Tensorflow
+    #    with tf.Graph().as_default():
+    #        algorithm_fn(env_fn=env_fn, ac_kwargs=ac_kwargs, max_ep_len=max_ep_len, steps_per_epoch=alg_dict['training_frequency'], 
+    #                     min_env_interactions=MIN_ENV_INTERACTIONS, logger_kwargs=logger_kwargs, seed=seed, **alg_specific_params)
+    #else:
+    algorithm_fn(env_fn=env_fn, ac_kwargs=ac_kwargs, max_ep_len=max_ep_len, steps_per_epoch=alg_dict['training_frequency'], 
+                 min_env_interactions=MIN_ENV_INTERACTIONS, logger_kwargs=logger_kwargs, seed=seed, **alg_specific_params)
 
 
 ########################
@@ -299,51 +299,51 @@ def evaluate_algorithm(alg_dict, arch_dict, env_dict, seed, render_type="def"):
         env.close()
         independent_furuta_data = None if not (is_furuta_env or is_qube2_env) else env.get_internal_rewards()
 
-    elif alg_dict['type'] == 'baselines':
-        with tf.Graph().as_default():
-            ac_kwargs = create_ac_kwargs(arch_dict['layers'], get_activation_by_name(arch_dict['activation'], use_torch=False))
-            model = alg_dict['alg_fn'](env_fn=env_fn, ac_kwargs=ac_kwargs, load_path=output_dir)
-            # Based on code from the file https://github.com/openai/baselines/blob/master/baselines/run.py
-            from baselines import logger
-            from baselines.common.vec_env.dummy_vec_env import VecEnv
-            from baselines.common import tf_util
-            from deps.baselines.dansah_custom.dummy_vec_env import DummyVecEnv
-            logger.log("Running trained model")
-            if is_furuta_env or is_qube2_env:
-                _env = env_fn()
-                env_fn = lambda : FurutaPendulumEnvEvalWrapper(env=_env, seed=seed, qube2=is_qube2_env)
-            env = DummyVecEnv(env_fns=[env_fn], max_ep_len=max_ep_len, collect_data=use_3d_render)
-            use_def_render = not env.collect_data # True if data will be collected
-            use_3d_render = not use_def_render
-            obs = env.reset()
+    #elif alg_dict['type'] == 'baselines':
+    #    with tf.Graph().as_default():
+    #        ac_kwargs = create_ac_kwargs(arch_dict['layers'], get_activation_by_name(arch_dict['activation'], use_torch=False))
+    #        model = alg_dict['alg_fn'](env_fn=env_fn, ac_kwargs=ac_kwargs, load_path=output_dir)
+    #        # Based on code from the file https://github.com/openai/baselines/blob/master/baselines/run.py
+    #        from baselines import logger
+    #        from baselines.common.vec_env.dummy_vec_env import VecEnv
+    #        from baselines.common import tf_util
+    #        from deps.baselines.dansah_custom.dummy_vec_env import DummyVecEnv
+    #        logger.log("Running trained model")
+    #        if is_furuta_env or is_qube2_env:
+    #            _env = env_fn()
+    #            env_fn = lambda : FurutaPendulumEnvEvalWrapper(env=_env, seed=seed, qube2=is_qube2_env)
+    #        env = DummyVecEnv(env_fns=[env_fn], max_ep_len=max_ep_len, collect_data=use_3d_render)
+    #        use_def_render = not env.collect_data # True if data will be collected
+    #        use_3d_render = not use_def_render
+    #        obs = env.reset()
 
-            state = model.initial_state if hasattr(model, 'initial_state') else None
-            dones = np.zeros((1,))
+    #        state = model.initial_state if hasattr(model, 'initial_state') else None
+    #        dones = np.zeros((1,))
 
-            eval_data = []
-            current_episode = 0
-            episode_rew = np.zeros(env.num_envs) if isinstance(env, VecEnv) else np.zeros(1)
-            while current_episode < num_episodes:
-                if state is not None:
-                    actions, _, state, _ = model.step(obs,S=state, M=dones)
-                else:
-                    actions, _, _, _ = model.step(obs)
+    #        eval_data = []
+    #        current_episode = 0
+    #        episode_rew = np.zeros(env.num_envs) if isinstance(env, VecEnv) else np.zeros(1)
+    #        while current_episode < num_episodes:
+    #            if state is not None:
+    #                actions, _, state, _ = model.step(obs,S=state, M=dones)
+    #            else:
+    #                actions, _, _, _ = model.step(obs)
 
-                obs, rew, done, _ = env.step(actions)
-                episode_rew += rew
-                if use_def_render and not HIDE_VIS:
-                    env.render()
-                done_any = done.any() if isinstance(done, np.ndarray) else done
-                if done_any:
-                    current_episode += 1
-                    for i in np.nonzero(done)[0]:
-                        eval_data.append(episode_rew[i])
-                        print('episode_rew={}'.format(episode_rew[i]))
-                        episode_rew[i] = 0
-            collected_data = env.get_data()
-            env.close()
-            tf_util.get_session().close()
-            independent_furuta_data = None if not (is_furuta_env or is_qube2_env) else env.envs[0].get_internal_rewards()
+    #            obs, rew, done, _ = env.step(actions)
+    #            episode_rew += rew
+    #            if use_def_render and not HIDE_VIS:
+    #                env.render()
+    #            done_any = done.any() if isinstance(done, np.ndarray) else done
+    #            if done_any:
+    #                current_episode += 1
+    #                for i in np.nonzero(done)[0]:
+    #                    eval_data.append(episode_rew[i])
+    #                    print('episode_rew={}'.format(episode_rew[i]))
+    #                    episode_rew[i] = 0
+    #        collected_data = env.get_data()
+    #        env.close()
+    #        tf_util.get_session().close()
+    #        independent_furuta_data = None if not (is_furuta_env or is_qube2_env) else env.envs[0].get_internal_rewards()
 
     elif alg_dict['type'] == 'slm':
         ac_kwargs = create_ac_kwargs(mlp_architecture=arch_dict['layers'], activation_func=get_activation_by_name(arch_dict['activation'], use_torch=True), 
@@ -489,12 +489,12 @@ def get_activation_by_name(activation_name, use_torch=True):
     """
     if activation_name == "relu":
         if not use_torch:
-            return tf.nn.relu
+            return None #tf.nn.relu
         else:
             return nn.ReLU
     elif activation_name == "tanh":
         if not use_torch:
-            return tf.nn.tanh
+            return None #tf.nn.tanh
         else:
             return nn.Tanh
     else:
@@ -523,13 +523,13 @@ def main():
     """
     from custom_envs.env_util import DiscretizingEnvironmentWrapper
     from deps.spinningup.dansah_custom.ddpg import ddpg
-    from deps.spinningup.dansah_custom.ppo import ppo
-    from deps.baselines.dansah_custom.a2c import a2c
-    from deps.SLM_Lab.dansah_custom.a2c import a2c as a2c_s
-    from deps.SLM_Lab.dansah_custom.reinforce import reinforce
-    from deps.SLM_Lab.dansah_custom.dqn import dqn
-    from deps.SLM_Lab.dansah_custom.ppo import ppo_s
-    from deps.pytorch_rl_il.dansah_custom.rs_mpc_launcher import rs_mpc
+    #from deps.spinningup.dansah_custom.ppo import ppo
+    #from deps.baselines.dansah_custom.a2c import a2c
+    #from deps.SLM_Lab.dansah_custom.a2c import a2c as a2c_s
+    #from deps.SLM_Lab.dansah_custom.reinforce import reinforce
+    #from deps.SLM_Lab.dansah_custom.dqn import dqn
+    #from deps.SLM_Lab.dansah_custom.ppo import ppo_s
+    #from deps.pytorch_rl_il.dansah_custom.rs_mpc_launcher import rs_mpc
     all_environments = [
         {
             "name": "furuta_paper",
@@ -597,74 +597,74 @@ def main():
             "env_fn_disc": None,
             "max_ep_len": 1000, # NOTE: Arbitrarily chosen value.
         },
-        {
-            "name": "qube2_sim",
-            "env_fn": make_env_qube2_sim,
-            "env_fn_disc": DiscretizingEnvironmentWrapper(make_env_qube2_sim),
-            "max_ep_len": 2048,
-        },
-        {
-            "name": "qube2_real",
-            "env_fn": make_env_qube2_real,
-            "env_fn_disc": None,
-            "max_ep_len": 2048,
-        }
+        #{
+        #    "name": "qube2_sim",
+        #    "env_fn": make_env_qube2_sim,
+        #    "env_fn_disc": DiscretizingEnvironmentWrapper(make_env_qube2_sim),
+        #    "max_ep_len": 2048,
+        #},
+        #{
+        #    "name": "qube2_real",
+        #    "env_fn": make_env_qube2_real,
+        #    "env_fn_disc": None,
+        #    "max_ep_len": 2048,
+        #}
     ]
     all_algorithms = [
-        {
-            "name": "a2c_s",            # The name of the algorithm. Must be unique, but could be any String without whitespace.
-            "alg_fn": a2c_s,            # Function that trains an agent using the algorithm. Should comply with the Spin Up API.
-            "continuous": True,         # Specifies whether the algorithm supports continuous action spaces.
-            "type": "slm",              # Species the implementation type/origin of the algorithm.
-        },
-        {
-            "name": "a2c_s_adam",
-            "alg_fn": a2c_s,
-            "continuous": True,
-            "type": "slm",
-        },
-        {
-            "name": "a2c",
-            "alg_fn": a2c,
-            "continuous": True,
-            "type": "baselines",
-        },
+        #{
+        #    "name": "a2c_s",            # The name of the algorithm. Must be unique, but could be any String without whitespace.
+        #    "alg_fn": a2c_s,            # Function that trains an agent using the algorithm. Should comply with the Spin Up API.
+        #    "continuous": True,         # Specifies whether the algorithm supports continuous action spaces.
+        #    "type": "slm",              # Species the implementation type/origin of the algorithm.
+        #},
+        #{
+        #    "name": "a2c_s_adam",
+        #    "alg_fn": a2c_s,
+        #    "continuous": True,
+        #    "type": "slm",
+        #},
+        #{
+        #    "name": "a2c",
+        #    "alg_fn": a2c,
+        #    "continuous": True,
+        #    "type": "baselines",
+        #},
         {
             "name": "ddpg",
             "alg_fn": ddpg,
             "continuous": True,
             "type": "spinup",
         },
-        {
-            "name": "dqn",
-            "alg_fn": dqn,
-            "continuous": False,
-            "type": "slm",
-        },
-        {
-            "name": "ppo_s",
-            "alg_fn": ppo_s,
-            "continuous": True,
-            "type": "slm",
-        },
-        {
-            "name": "ppo",
-            "alg_fn": ppo,
-            "continuous": True,
-            "type": "spinup",
-        },
-        {
-            "name": "reinforce",
-            "alg_fn": reinforce,
-            "continuous": True,
-            "type": "slm",
-        },
-        {
-            "name": "rs_mpc",
-            "alg_fn": rs_mpc,
-            "continuous": True,
-            "type": "rlil",
-        }
+        #{
+        #    "name": "dqn",
+        #    "alg_fn": dqn,
+        #    "continuous": False,
+        #    "type": "slm",
+        #},
+        #{
+        #    "name": "ppo_s",
+        #    "alg_fn": ppo_s,
+        #    "continuous": True,
+        #    "type": "slm",
+        #},
+        #{
+        #    "name": "ppo",
+        #    "alg_fn": ppo,
+        #    "continuous": True,
+        #    "type": "spinup",
+        #},
+        #{
+        #    "name": "reinforce",
+        #    "alg_fn": reinforce,
+        #    "continuous": True,
+        #    "type": "slm",
+        #},
+        #{
+        #    "name": "rs_mpc",
+        #    "alg_fn": rs_mpc,
+        #    "continuous": True,
+        #    "type": "rlil",
+        #}
     ]
     all_architectures = [
         {
