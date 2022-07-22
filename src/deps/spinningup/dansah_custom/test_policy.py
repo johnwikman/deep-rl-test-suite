@@ -2,11 +2,8 @@ import time
 import joblib
 import os
 import os.path as osp
-#import tensorflow.compat.v1 as tf
-#tf.disable_v2_behavior()
 import torch
-from ..spinup import EpochLogger
-#from ..spinup.utils.logx import restore_tf_graph
+from .logx import EpochLogger
 import numpy as np
 
 
