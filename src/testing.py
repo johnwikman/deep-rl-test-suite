@@ -9,9 +9,6 @@ Last edit: 2022-06-21
 By: dansah
 """
 
-from configs import ALGO_ENV_CONFIGS
-from exp_config import get_experiment
-
 from deps.spinningup.dansah_custom import test_policy
 from deps.spinningup.dansah_custom import plot
 
@@ -173,209 +170,6 @@ def make_env_pbrs3_norm():
     from custom_envs.furuta_swing_up_pbrs_v3_norm import FurutaPendulumEnvPBRS_V3_norm
     return FurutaPendulumEnvPBRS_V3_norm()
 
-def make_env_qube2_sim():
-    """
-    Creates a Furuta swing-up environment using a simulated version of
-    the QUBE Servo 2 by Quanser.
-    NOTE: Requires Quanser OpenAI Driver, available at:
-    https://github.com/BlueRiverTech/quanser-openai-driver
-    """
-    try:
-        from custom_envs.furuta_qube2 import FurutaQube2
-        return FurutaQube2(use_simulator=True)
-    except:
-        print("WARNING: Could not import gym_brt")
-        return None
-
-def make_env_qube2_real():
-    """
-    Creates a Furuta swing-up environment that connects to the real,
-    physical, QUBE Servo 2 by Quanser.
-    NOTE: Requires Quanser OpenAI Driver, available at:
-    https://github.com/BlueRiverTech/quanser-openai-driver
-    """
-    try:
-        from custom_envs.furuta_qube2 import FurutaQube2
-        return FurutaQube2(use_simulator=False)
-    except:
-        print("WARNING: Could not import gym_brt")
-        return None
-
-######################
-# Training functions #
-######################
-def create_ac_kwargs(mlp_architecture=[64,64], activation_func=None, arch_dict=dict(), env_dict=dict(), output_dir="", xtra_args=False):
-    """
-    Creates the ac_kwargs dictionary used by the algorithms (primarily the Spin Up ones).
-    If xtra_args is True, some extra key-value pairs are added that SLM algorithms use.
-    """
-    ac_kwargs = dict(hidden_sizes=mlp_architecture, activation=activation_func)
-    if xtra_args:
-        ac_kwargs['activation_name'] = arch_dict['activation']
-        ac_kwargs['rel_output_dir'] = output_dir.replace(BASE_DIR, "")
-        ac_kwargs['env_name'] = env_dict['name']
-    return ac_kwargs
-
-def train_algorithm(alg_dict, arch_dict, env_dict, seed=0):
-    """
-    Trains the given algorithm. The output is saved in the output directory
-    returned by get_output_dir.
-    Nothing is returned.
-    """
-    output_dir = get_output_dir(alg_dict['name'], arch_dict['name'], env_dict['name'], seed)
-
-    # Based on example from https://spinningup.openai.com/en/latest/user/running.html
-    act_func = get_activation_by_name(arch_dict['activation'], use_torch=(alg_dict['type'] != 'baselines'))
-    add_xtra_args = alg_dict['type'] == 'slm' or alg_dict['type'] == 'rlil'
-    ac_kwargs = create_ac_kwargs(mlp_architecture=arch_dict['layers'], activation_func=act_func, arch_dict=arch_dict, env_dict=env_dict,
-                                 output_dir=output_dir, xtra_args=add_xtra_args)
-    logger_kwargs = dict(output_dir=output_dir, exp_name='experiment_test0_' + output_dir, log_frequency=alg_dict['log_frequency'])
-
-    algorithm_fn = alg_dict['alg_fn']
-    env_fn = env_dict['env_fn'] if alg_dict['continuous'] else env_dict['env_fn_disc']
-    max_ep_len = env_dict['max_ep_len']
-    alg_specific_params = dict()
-    if alg_dict.get('specific'):
-        alg_specific_params = alg_dict['specific']
-
-    #if alg_dict['type'] == 'baselines': # Only type using Tensorflow
-    #    with tf.Graph().as_default():
-    #        algorithm_fn(env_fn=env_fn, ac_kwargs=ac_kwargs, max_ep_len=max_ep_len, steps_per_epoch=alg_dict['training_frequency'], 
-    #                     min_env_interactions=MIN_ENV_INTERACTIONS, logger_kwargs=logger_kwargs, seed=seed, **alg_specific_params)
-    #else:
-    algorithm_fn(env_fn=env_fn, ac_kwargs=ac_kwargs, max_ep_len=max_ep_len, steps_per_epoch=alg_dict['training_frequency'], 
-                 min_env_interactions=MIN_ENV_INTERACTIONS, logger_kwargs=logger_kwargs, seed=seed, **alg_specific_params)
-
-
-########################
-# Evaluation functions #
-########################
-def evaluate_algorithm(alg_dict, arch_dict, env_dict, seed, render_type="def"):
-    """
-    Evaluate a trained algorithm by applying it and rendering the result.
-
-    render_type (string): one of ["def", "3d"]
-    """
-    from custom_envs.furuta_swing_up_eval import FurutaPendulumEnvEvalWrapper
-
-    max_ep_len = env_dict['max_ep_len']
-    env_fn = env_dict['env_fn'] if alg_dict['continuous'] else env_dict['env_fn_disc']
-    output_dir = get_output_dir(alg_dict['name'], arch_dict['name'], env_dict['name'], seed)
-
-    is_qube2_env = env_dict['name'].find('qube2') >= 0
-    is_furuta_env = env_dict['name'].find('furuta') >= 0
-    independent_furuta_data = None
-    eval_data = None
-
-    num_episodes = 5
-
-    use_def_render = (render_type=="def")
-    use_3d_render = (render_type=="3d")
-    if not use_def_render and not use_3d_render:
-        raise NotImplementedError("The render type must be def or 3d, got %s" % render_type)
-    collected_data = None
-
-    if alg_dict['type'] == 'spinup':
-        itr = -1
-        force_disc = env_fn().is_discrete
-        env, get_action = test_policy.load_policy_and_env(output_dir,
-                                                          itr if itr >=0 else 'last',
-                                                          False,  # Deterministic true/false. Only used by the SAC algorithm.
-                                                          force_disc)
-        if is_furuta_env or is_qube2_env:
-            env = FurutaPendulumEnvEvalWrapper(env=env, seed=seed, qube2=is_qube2_env)
-        if use_3d_render:
-            try:
-                env.collect_data()
-            except:
-                print("WARNING: The environment does not support collecting data. Default rendering will be used.")
-                use_3d_render = False
-                use_def_render = True
-        eval_data = test_policy.run_policy(env, get_action, max_ep_len=max_ep_len, num_episodes=num_episodes, render=(use_def_render and not HIDE_VIS))
-        if use_3d_render:
-            collected_data = env.get_data()
-        env.close()
-        independent_furuta_data = None if not (is_furuta_env or is_qube2_env) else env.get_internal_rewards()
-
-    elif alg_dict['type'] == 'slm':
-        ac_kwargs = create_ac_kwargs(mlp_architecture=arch_dict['layers'], activation_func=get_activation_by_name(arch_dict['activation'], use_torch=True), 
-                                     arch_dict=arch_dict, env_dict=env_dict, output_dir=output_dir, xtra_args=True)
-        collected_data, eval_res = alg_dict['alg_fn'](env_fn=env_fn, ac_kwargs=ac_kwargs, max_ep_len=max_ep_len, 
-                                                      steps_per_epoch=max_ep_len, num_episodes=num_episodes, 
-                                                      logger_kwargs=dict(), seed=seed, mode='enjoy', collect_data=use_3d_render, 
-                                                      is_furuta_env=is_furuta_env, render=(not HIDE_VIS))
-        if is_furuta_env:
-            independent_furuta_data = eval_res
-        if FORCE_EVAL:
-            eval_data = eval_res
-
-    elif alg_dict['type'] == 'rlil':
-        from deps.pytorch_rl_il.dansah_custom.watch_continuous import evaluate_algorithm
-        act_func = get_activation_by_name(arch_dict['activation'], use_torch=True)
-        ac_kwargs = create_ac_kwargs(mlp_architecture=arch_dict['layers'], activation_func=act_func, arch_dict=arch_dict, env_dict=env_dict,
-                                     output_dir=output_dir, xtra_args=True)
-        collected_data, eval_res = evaluate_algorithm(env_fn, ac_kwargs=ac_kwargs, max_ep_len=max_ep_len, 
-                                                      num_episodes=num_episodes, seed=seed, collect_data=use_3d_render,
-                                                      is_furuta_env=is_furuta_env, render=(not HIDE_VIS))
-        if is_furuta_env:
-            independent_furuta_data = eval_res
-        if FORCE_EVAL:
-            eval_data = eval_res
-
-    else:
-        raise NotImplementedError("No handler for algorithm type %s" % (alg_dict['type']))
-    
-    if use_3d_render and (is_furuta_env or is_qube2_env) and not HIDE_VIS:
-        assert collected_data is not None, "No data was collected for rendering!"
-        from deps.visualizer.visualizer import plot_animated
-        name = "%s - %s" % (alg_dict['name'], arch_dict['name'])
-        best_episode_idx = np.argmax(independent_furuta_data) # Visualize the best episode
-        plot_data = collected_data[best_episode_idx]
-        plot_animated(phis=plot_data["phis"], thetas=plot_data["thetas"], l_arm=1.0, l_pendulum=1.0, 
-                      frame_rate=50, name=name, save_as=get_video_filepath(name))
-    
-    if is_furuta_env or is_qube2_env:
-        print("Independently defined evaluation data:", independent_furuta_data)
-        return independent_furuta_data
-    if FORCE_EVAL:
-        assert eval_data is not None and len(eval_data) > 0, "No evaluation data was generated!"
-        print("Eval data: %s" % eval_data)
-        return eval_data
-
-
-###############################
-# Transfer Learning Functions #
-###############################
-def transfer_learning(alg_dict, arch_dict, env_dict, phys_env, seed):
-    """
-    Apply an agent trained in a simulated Furuta environment to the real, physical
-    system.
-    """
-    from custom_envs.furuta_swing_up_eval import FurutaPendulumEnvEvalWrapper
-
-    max_ep_len = env_dict['max_ep_len']
-    output_dir = get_output_dir(alg_dict['name'], arch_dict['name'], env_dict['name'], seed)
-
-    num_episodes = 5
-
-    if alg_dict['type'] == 'spinup':
-        itr = -1
-        sim_env, get_action = test_policy.load_policy_and_env(output_dir,
-                                                              itr if itr >=0 else 'last',
-                                                              False,  # Deterministic true/false. Only used by the SAC algorithm.
-                                                              False)
-        sim_env.close()
-
-        env = FurutaPendulumEnvEvalWrapper(env=phys_env, seed=seed, qube2=True)
-        test_policy.run_policy(env, get_action, max_ep_len=max_ep_len, num_episodes=num_episodes, render=False)
-        env.close()
-        independent_furuta_data = env.get_internal_rewards()
-    else:
-        raise NotImplementedError("No transfer learning handler for algorithm type %s" % (alg_dict['type']))
-
-    print("Independently defined evaluation data:", independent_furuta_data)
-    return independent_furuta_data
-
 
 #########################
 # Misc helper functions #
@@ -466,272 +260,112 @@ def get_dicts_in_list_matching_names(name_list, dict_list):
     return res
 
 
-#################
-# Main function #
-#################
-def main():
-    """
-    Runns all of the experiments.
-    """
-    from custom_envs.env_util import DiscretizingEnvironmentWrapper
-    from deps.spinningup.dansah_custom.ddpg import ddpg
-    all_environments = [
-        {
-            "name": "furuta_paper",
-            "env_fn": make_env,
-            "env_fn_disc": lambda : DiscretizingEnvironmentWrapper(make_env),
-            "max_ep_len": 501,
-        },
-        {
-            "name": "furuta_paper_obs",
-            "env_fn": make_env_obs,
-            "env_fn_disc": lambda : DiscretizingEnvironmentWrapper(make_env_obs),
-            "max_ep_len": 501,
-        },
-        {
-            "name": "furuta_paper_mix",
-            "env_fn": make_env_mix,
-            "env_fn_disc": lambda : DiscretizingEnvironmentWrapper(make_env_mix),
-            "max_ep_len": 501,
-        },
-        {
-            "name": "furuta_paper_r",
-            "env_fn": make_env_r,
-            "env_fn_disc": lambda : DiscretizingEnvironmentWrapper(make_env_r),
-            "max_ep_len": 501,
-        },
-        {
-            "name": "furuta_paper_norm",
-            "env_fn": make_env_norm,
-            "env_fn_disc": lambda : DiscretizingEnvironmentWrapper(make_env_norm),
-            "max_ep_len": 501,
-        },
-        {
-            "name": "furuta_pbrs",
-            "env_fn": make_env_pbrs,
-            "env_fn_disc": lambda : DiscretizingEnvironmentWrapper(make_env_pbrs),
-            "max_ep_len": 501,
-        },
-        {
-            "name": "furuta_pbrs2",
-            "env_fn": make_env_pbrs2,
-            "env_fn_disc": lambda : DiscretizingEnvironmentWrapper(make_env_pbrs2),
-            "max_ep_len": 501,
-        },
-        {
-            "name": "furuta_pbrs3_norm",
-            "env_fn": make_env_pbrs3_norm,
-            "env_fn_disc": lambda : DiscretizingEnvironmentWrapper(make_env_pbrs3_norm),
-            "max_ep_len": 501,
-        },
-        {
-            "name": "furuta_pbrs3",
-            "env_fn": make_env_pbrs3,
-            "env_fn_disc": lambda : DiscretizingEnvironmentWrapper(make_env_pbrs3),
-            "max_ep_len": 501,
-        },
-        {
-            "name": "cartpole",
-            "env_fn": make_cartpole_env,
-            "env_fn_disc": make_cartpole_env,
-            "max_ep_len": 200, # Any value can be chosen. A value of 100 or more should be reasonable.
-        },
-        {
-            "name": "walker_2d",
-            "env_fn": make_walker_2d_env,
-            "env_fn_disc": None,
-            "max_ep_len": 1000, # NOTE: Arbitrarily chosen value.
-        },
-    ]
-    all_algorithms = [
-        {
-            "name": "ddpg",
-            "alg_fn": ddpg,
-            "continuous": True,
-            "type": "spinup",
-        },
-    ]
-    all_architectures = [
-        {
-            "name": "256_128_relu",
-            "layers": [256, 128],
-            "activation": "relu"
-        },
-    ]
-
-    envs = get_dicts_in_list_matching_names(ENVS_TO_USE, all_environments)
-    algorithms = get_dicts_in_list_matching_names(ALGORITHMS_TO_USE, all_algorithms)
-    architectures = get_dicts_in_list_matching_names(ARCHS_TO_USE, all_architectures)
-
-    if DO_TRAINING:
-        for env_dict in envs:
-            env_name = env_dict['name']
-            for alg_dict in algorithms:
-                alg_name = alg_dict['name']
-                try:
-                    alg_dict = {**alg_dict, **ALGO_ENV_CONFIGS[env_name][alg_name]} # Merge-in training parameters.
-                except:
-                    raise NotImplementedError("No configuration found for %s with the environment %s" % (alg_name, env_name))
-                annonuce_message("Now training with %s in environment %s" % (alg_name, env_name))
-                for arch_dict in architectures:
-                    for seed in SEEDS_TO_USE:
-                        heads_up_message("Using arch %s and seed %s" % (arch_dict['name'], seed))
-                        train_algorithm(alg_dict, arch_dict, env_dict, seed)
-
-    if DO_POLICY_TEST:
-        eval_table = dict()
-        for env_dict in envs:
-            is_qube2_env = env_dict['name'].find('qube2') >= 0
-            is_furuta_env = env_dict['name'].find('furuta') >= 0
-            save_data = is_furuta_env or is_qube2_env or FORCE_EVAL
-            if save_data:
-                eval_table[env_dict['name']] = dict()
-            for arch_dict in architectures:
-                if save_data:
-                    eval_table[env_dict['name']][arch_dict['name']] = dict()
-                for alg_dict in algorithms:
-                    for idx, seed in enumerate(SEEDS_TO_USE):
-                        annonuce_message("Now testing algorithm %s with %s in environment %s with seed %s" % 
-                            (alg_dict['name'], arch_dict['name'], env_dict['name'], seed))
-                        eval_data = evaluate_algorithm(alg_dict, arch_dict, env_dict, seed, render_type=RENDER_TYPE)
-                        if eval_data is not None:
-                            if idx == 0:
-                                eval_table[env_dict['name']][arch_dict['name']][alg_dict['name']] = eval_data
-                            else:
-                                eval_table[env_dict['name']][arch_dict['name']][alg_dict['name']] = np.concatenate(
-                                    (eval_table[env_dict['name']][arch_dict['name']][alg_dict['name']], eval_data))
-        if len(eval_table.keys()) > 0:
-            import datetime
-            eval_table['_debug'] = "eval_table created at %s, using seeds %s." % (datetime.datetime.now(), SEEDS_TO_USE)
-            with open(get_table_data_filepath(), "wb") as f:
-                pickle.dump(eval_table, f)
-
-    if DO_TRANSFER:
-        eval_results_array = [] # Will summarize across all tests; not an per arch, env, or alg basis.
-        for env_dict in envs:
-            is_furuta_env = env_dict['name'].find('furuta') >= 0
-            if not is_furuta_env and "qube2_sim" != env_dict['name']:
-                raise NotImplementedError("Cannot apply a non-Furuta environment to the physical system.")
-            for arch_dict in architectures:
-                for alg_dict in algorithms:
-                    for _, seed in enumerate(SEEDS_TO_USE):
-                        annonuce_message("Now transfering algorithm %s with %s trained in environment %s with seed %s" % 
-                            (alg_dict['name'], arch_dict['name'], env_dict['name'], seed))
-                        phys_furuta_eval_data = transfer_learning(alg_dict, arch_dict, env_dict, make_env_qube2_real(), seed)
-                        eval_results_array = np.concatenate((eval_results_array, phys_furuta_eval_data))
-        annonuce_message("Results of evaluation: mean %s, std %s, across %s tests." % 
-            (np.mean(eval_results_array), np.std(eval_results_array), len(eval_results_array)))
-
-    if DO_PLOTS:
-        res_maker_dict = dict()
-        for env_dict in envs:
-            env_name = env_dict['name']
-            res_maker_dict[env_name] = dict()
-            for arch_dict in architectures:
-                dirs = []
-                alg_names = []
-                arch_name = arch_dict['name']
-                res_maker_dict[env_name][arch_name] = dict()
-                for alg_dict in algorithms:    
-                    alg_name = alg_dict['name']
-                    for seed in SEEDS_TO_USE:
-                        alg_names.append(alg_name)
-                        dirs.append(get_output_dir(alg_name, arch_name, env_name, seed))
-                annonuce_message("Analyzing metrics for environment %s" % env_name)
-                metrics = ['Performance']
-                fname=get_diagram_filepath(env_name, arch_name)
-                res_maker_dict[env_name][arch_name] = {"diagrams": {"Performance": fname}}
-                plot.make_plots(dirs, legend=alg_names, xaxis='TotalEnvInteracts', values=metrics, count=False, 
-                                smooth=1, select=None, exclude=None, estimator='mean', fname=fname)
-        eval_table = None
-        try:
-            with open(get_table_data_filepath(), "rb") as f:
-                eval_table = pickle.load(f)
-                heads_up_message("Loaded eval_table: %s" % eval_table['_debug'])
-        except:
-            print("NOTE: Could not load evaluation table data. Run an evaluation on the Furuta environments to generate it.")
-        # Process eval. table data.
-        if eval_table is not None:
-            for env_name in eval_table:
-                if env_name.startswith('_'):
-                    continue
-                for arch_name in eval_table[env_name]:
-                    eval_2d_table_data = [["Alg", "Mean", "Std"]]
-                    for alg_name in eval_table[env_name][arch_name]:
-                        eval_data = eval_table[env_name][arch_name][alg_name]
-                        eval_2d_table_data.append([alg_name, np.mean(eval_data), np.std(eval_data)])
-                    try:
-                        res_maker_dict[env_name][arch_name]["tables"] = {"Independent evaluation data": eval_2d_table_data}
-                    except:
-                        print("ERROR: Failed to add evaluation table for %s %s: Missing entry in result dict." % 
-                            (env_name, arch_name))
-        res_file = get_res_filepath()
-        make_html(res_file, res_maker_dict)
-        print(res_file)
-        import webbrowser
-        assert webbrowser.get().open("file://" + res_file)
-
-
 if __name__ == "__main__":
     import argparse
     argparser = argparse.ArgumentParser()
-    argparser.add_argument("-x", "--exp", help="Specify an experiment to run")
-    argparser.add_argument("-t", "--train", action="store_true", help="Perform training")
-    argparser.add_argument("-e", "--eval", action="store_true", help="Perform evaluation")
-    argparser.add_argument("-l", "--transfer", action="store_true", help="Perform transfer learning")
+    argparser.add_argument("mode", choices={"train", "eval"})
+    argparser.add_argument("-s", "--seed", type=int, help="The seed to use", default=0)
+    argparser.add_argument("-i", "--inter", type=int, help="The number of interactions to target", default=500_000)
     argparser.add_argument("-p", "--plot", action="store_true", help="Produce plots")
-    argparser.add_argument("-v", "--video", action="store_true", help="Save 3d-video")
-    argparser.add_argument("-z", "--hide", action="store_true", help="Hide visualization during evaluation")
-    argparser.add_argument("-a", "--algs", nargs='*', help="The algorithms to use")
-    argparser.add_argument("-n", "--envs", nargs='*', help="The environments to use")
-    argparser.add_argument("-r", "--arch", nargs='*', help="The architectures to use")
-    argparser.add_argument("-s", "--seeds", nargs='*', type=int, help="The seeds to use")
-    argparser.add_argument("-i", "--inter", type=int, help="The number of interactions to target")
     args = argparser.parse_args()
 
-    if args.exp:
-        ENVS_TO_USE, ALGORITHMS_TO_USE, ARCHS_TO_USE, SEEDS_TO_USE = get_experiment(args.exp)
+    # env = "furuta_pbrs3"
+    env_fn = make_env_pbrs3
+    max_ep_len = 501
 
-    if args.train:
-        DO_TRAINING = True
+    output_dir = get_output_dir("ddpg", "256_128_relu", "furuta_pbrs3", args.seed)
+    if args.mode == "train":
+        from deps.spinningup.dansah_custom.ddpg import ddpg
 
-    if args.eval:
-        DO_POLICY_TEST = True
+        ac_kwargs = {
+            "hidden_sizes": [256, 128],
+            "activation": nn.ReLU
+        }
+        logger_kwargs = {
+            "output_dir": output_dir,
+            "exp_name": "experiment_test0_" + output_dir,
+            "log_frequency": 2000
+        }
 
-    if args.transfer:
-        DO_TRANSFER = True
+        ddpg(env_fn=env_fn,
+             ac_kwargs=ac_kwargs,
+             max_ep_len=max_ep_len,
+             steps_per_epoch=256, 
+             min_env_interactions=args.inter,
+             logger_kwargs=logger_kwargs,
+             seed=args.seed,
+             start_steps=10000,
+             perform_eval=False,
+             pi_lr=5e-4,
+             q_lr=5e-4)
 
-    if args.plot:
-        DO_PLOTS = True
-    
-    if args.video:
-        SAVE_VIDEO = True
-    
-    if args.hide:
-        HIDE_VIS = True
-
-    if args.algs:
-        if len(args.algs) == 1 and args.algs[0] == 'all':
-            ALGORITHMS_TO_USE = ["rs_mpc", "dqn", "reinforce", "a2c_s", "a2c", "ppo", "ddpg"]
-        else:
-            ALGORITHMS_TO_USE = args.algs
-
-    if args.envs:
-        ENVS_TO_USE = args.envs
-
-    if args.arch:
-        ARCHS_TO_USE = args.arch
-    elif len(ARCHS_TO_USE) == 0:
-        ARCHS_TO_USE = ["64_64_relu"]
-
-    if args.seeds:
-        SEEDS_TO_USE = args.seeds
-    elif len(SEEDS_TO_USE) == 0:
-        SEEDS_TO_USE = [0]
-
-    if args.inter:
-        MIN_ENV_INTERACTIONS = args.inter
+        if args.plot:
+            # plot
+            import webbrowser
+            fname = get_diagram_filepath("furuta_pbrs3", "256_128_relu")
+            res_maker_dict = {
+                "furuta_pbrs3": {
+                    "256_128_relu": {
+                        "diagrams": {"Performance": fname}
+                    }
+                }
+            }
+            annonuce_message("Analyzing metrics for environment furuta_pbrs3")
+            plot.make_plots([output_dir], legend=["ddpg"], xaxis='TotalEnvInteracts', values=["Performance"], count=False, 
+                            smooth=1, select=None, exclude=None, estimator='mean', fname=fname)
+            eval_table = None
+            try:
+                with open(get_table_data_filepath(), "rb") as f:
+                    eval_table = pickle.load(f)
+                    heads_up_message("Loaded eval_table: %s" % eval_table['_debug'])
+            except:
+                print("NOTE: Could not load evaluation table data. Run an evaluation on the Furuta environments to generate it.")
+            # Process eval. table data.
+            if eval_table is not None:
+                for env_name in eval_table:
+                    if env_name.startswith('_'):
+                        continue
+                    for arch_name in eval_table[env_name]:
+                        eval_2d_table_data = [["Alg", "Mean", "Std"]]
+                        for alg_name in eval_table[env_name][arch_name]:
+                            eval_data = eval_table[env_name][arch_name][alg_name]
+                            eval_2d_table_data.append([alg_name, np.mean(eval_data), np.std(eval_data)])
+                        try:
+                            res_maker_dict[env_name][arch_name]["tables"] = {"Independent evaluation data": eval_2d_table_data}
+                        except:
+                            print("ERROR: Failed to add evaluation table for %s %s: Missing entry in result dict." % 
+                                (env_name, arch_name))
+            res_file = get_res_filepath()
+            make_html(res_file, res_maker_dict)
+            print(res_file)
+            assert webbrowser.get().open("file://" + res_file)
     else:
-        MIN_ENV_INTERACTIONS = 100000
+        # eval
+        from custom_envs.furuta_swing_up_eval import FurutaPendulumEnvEvalWrapper
+        from deps.visualizer.visualizer import plot_animated
 
-    main()
+        env, get_action = test_policy.load_policy_and_env(output_dir,
+                                                          'last',
+                                                          deterministic=False,
+                                                          force_disc=False)
+        env = FurutaPendulumEnvEvalWrapper(env=env, seed=args.seed, qube2=False)
+        env.collect_data()
+
+        test_policy.run_policy(env, get_action, max_ep_len=max_ep_len, num_episodes=5, render=False)
+        collected_data = env.get_data()
+        env.close()
+        independent_furuta_data = env.get_internal_rewards()
+    
+        assert collected_data is not None, "No data was collected for rendering!"
+        name = "%s - %s" % ("ddpg", "256_128_relu")
+        best_episode_idx = np.argmax(independent_furuta_data) # Visualize the best episode
+        plot_data = collected_data[best_episode_idx]
+        plot_animated(phis=plot_data["phis"], thetas=plot_data["thetas"], l_arm=1.0, l_pendulum=1.0, 
+                      frame_rate=50, name=name, save_as=get_video_filepath(name))
+
+        print("Independently defined evaluation data:", independent_furuta_data)
+        eval_table = {"furuta_pbrs3": {"256_128_relu": {"ddpg": independent_furuta_data}}}
+        import datetime
+        eval_table['_debug'] = "eval_table created at %s, using seeds %s." % (datetime.datetime.now(), SEEDS_TO_USE)
+        with open(get_table_data_filepath(), "wb") as f:
+            pickle.dump(eval_table, f)
