@@ -9,12 +9,9 @@ Last edit: 2022-06-21
 By: dansah
 """
 
-from deps.spinningup.dansah_custom import test_policy
-from deps.spinningup.dansah_custom import plot
-
 import pathlib
-from result_maker import make_html
 
+import torch
 import torch.nn as nn
 
 import numpy as np
@@ -82,21 +79,57 @@ def get_table_data_filepath():
     return os.path.join(BASE_DIR, "eval_table")
 
 
-if __name__ == "__main__":
-    import argparse
-    argparser = argparse.ArgumentParser()
-    argparser.add_argument("mode", choices={"train", "eval"})
-    argparser.add_argument("-s", "--seed", type=int, help="The seed to use", default=0)
-    argparser.add_argument("-i", "--inter", type=int, help="The number of interactions to target", default=500_000)
-    argparser.add_argument("-p", "--plot", action="store_true", help="Produce plots")
-    args = argparser.parse_args()
+def plot_training(output_dir):
+    # plot
+    import webbrowser
+    from deps.spinningup.dansah_custom import plot
+    from result_maker import make_html
+    fname = get_diagram_filepath("furuta_pbrs3", "256_128_relu")
+    res_maker_dict = {
+        "furuta_pbrs3": {
+            "256_128_relu": {
+                "diagrams": {"Performance": fname}
+            }
+        }
+    }
+    annonuce_message("Analyzing metrics for environment furuta_pbrs3")
+    plot.make_plots([output_dir], legend=["ddpg"], xaxis='TotalEnvInteracts', values=["Performance"], count=False, 
+                    smooth=1, select=None, exclude=None, estimator='mean', fname=fname)
+    eval_table = None
+    try:
+        with open(get_table_data_filepath(), "rb") as f:
+            eval_table = pickle.load(f)
+            heads_up_message("Loaded eval_table: %s" % eval_table['_debug'])
+    except:
+        print("NOTE: Could not load evaluation table data. Run an evaluation on the Furuta environments to generate it.")
+    # Process eval. table data.
+    if eval_table is not None:
+        for env_name in eval_table:
+            if env_name.startswith('_'):
+                continue
+            for arch_name in eval_table[env_name]:
+                eval_2d_table_data = [["Alg", "Mean", "Std"]]
+                for alg_name in eval_table[env_name][arch_name]:
+                    eval_data = eval_table[env_name][arch_name][alg_name]
+                    eval_2d_table_data.append([alg_name, np.mean(eval_data), np.std(eval_data)])
+                try:
+                    res_maker_dict[env_name][arch_name]["tables"] = {"Independent evaluation data": eval_2d_table_data}
+                except:
+                    print("ERROR: Failed to add evaluation table for %s %s: Missing entry in result dict." % 
+                        (env_name, arch_name))
+    res_file = get_res_filepath()
+    make_html(res_file, res_maker_dict)
+    print(res_file)
+    assert webbrowser.get().open("file://" + res_file)
 
+
+def legacy_implementation(mode: str, seed=0, inter=0, make_plot=False):
     # env = "furuta_pbrs3"
     env_fn = make_env_pbrs3
     max_ep_len = 501
 
-    output_dir = get_output_dir("ddpg", "256_128_relu", "furuta_pbrs3", args.seed)
-    if args.mode == "train":
+    output_dir = get_output_dir("ddpg", "256_128_relu", "furuta_pbrs3", seed)
+    if mode == "train":
         from deps.spinningup.dansah_custom.ddpg import ddpg
 
         ac_kwargs = {
@@ -113,64 +146,27 @@ if __name__ == "__main__":
              ac_kwargs=ac_kwargs,
              max_ep_len=max_ep_len,
              steps_per_epoch=256, 
-             min_env_interactions=args.inter,
+             min_env_interactions=inter,
              logger_kwargs=logger_kwargs,
-             seed=args.seed,
+             seed=seed,
              start_steps=10000,
              perform_eval=False,
              pi_lr=5e-4,
              q_lr=5e-4)
 
-        if args.plot:
-            # plot
-            import webbrowser
-            fname = get_diagram_filepath("furuta_pbrs3", "256_128_relu")
-            res_maker_dict = {
-                "furuta_pbrs3": {
-                    "256_128_relu": {
-                        "diagrams": {"Performance": fname}
-                    }
-                }
-            }
-            annonuce_message("Analyzing metrics for environment furuta_pbrs3")
-            plot.make_plots([output_dir], legend=["ddpg"], xaxis='TotalEnvInteracts', values=["Performance"], count=False, 
-                            smooth=1, select=None, exclude=None, estimator='mean', fname=fname)
-            eval_table = None
-            try:
-                with open(get_table_data_filepath(), "rb") as f:
-                    eval_table = pickle.load(f)
-                    heads_up_message("Loaded eval_table: %s" % eval_table['_debug'])
-            except:
-                print("NOTE: Could not load evaluation table data. Run an evaluation on the Furuta environments to generate it.")
-            # Process eval. table data.
-            if eval_table is not None:
-                for env_name in eval_table:
-                    if env_name.startswith('_'):
-                        continue
-                    for arch_name in eval_table[env_name]:
-                        eval_2d_table_data = [["Alg", "Mean", "Std"]]
-                        for alg_name in eval_table[env_name][arch_name]:
-                            eval_data = eval_table[env_name][arch_name][alg_name]
-                            eval_2d_table_data.append([alg_name, np.mean(eval_data), np.std(eval_data)])
-                        try:
-                            res_maker_dict[env_name][arch_name]["tables"] = {"Independent evaluation data": eval_2d_table_data}
-                        except:
-                            print("ERROR: Failed to add evaluation table for %s %s: Missing entry in result dict." % 
-                                (env_name, arch_name))
-            res_file = get_res_filepath()
-            make_html(res_file, res_maker_dict)
-            print(res_file)
-            assert webbrowser.get().open("file://" + res_file)
+        if make_plot:
+            plot_training(output_dir)
     else:
         # eval
         from custom_envs.furuta_swing_up_eval import FurutaPendulumEnvEvalWrapper
+        from deps.spinningup.dansah_custom import test_policy
         from deps.visualizer.visualizer import plot_animated
 
         env, get_action = test_policy.load_policy_and_env(output_dir,
                                                           'last',
                                                           deterministic=False,
                                                           force_disc=False)
-        env = FurutaPendulumEnvEvalWrapper(env=env, seed=args.seed, qube2=False)
+        env = FurutaPendulumEnvEvalWrapper(env=env, seed=seed, qube2=False)
         env.collect_data()
 
         test_policy.run_policy(env, get_action, max_ep_len=max_ep_len, num_episodes=5, render=False)
@@ -188,6 +184,94 @@ if __name__ == "__main__":
         print("Independently defined evaluation data:", independent_furuta_data)
         eval_table = {"furuta_pbrs3": {"256_128_relu": {"ddpg": independent_furuta_data}}}
         import datetime
-        eval_table['_debug'] = "eval_table created at %s, using seeds %s." % (datetime.datetime.now(), [args.seed])
+        eval_table['_debug'] = "eval_table created at %s, using seeds %s." % (datetime.datetime.now(), [seed])
         with open(get_table_data_filepath(), "wb") as f:
             pickle.dump(eval_table, f)
+
+
+def new_implementation(mode: str, seed=0, inter=0, make_plot=False):
+    """
+    Heavily modified implementation, using a different flow.
+    """
+    from deps.spinningup.dansah_modified.net import MLPActorCritic
+    print("Setting up environment")
+
+    torch.manual_seed(seed)
+    np.random.seed(seed)
+
+    env = make_env_pbrs3()
+    test_env = make_env_pbrs3()
+
+    env.seed(seed)
+    env.action_space.seed(seed)
+    test_env.seed(seed)
+    test_env.action_space.seed(seed)
+
+    ac = MLPActorCritic(env.observation_space, env.action_space, env.is_discrete,
+                        hidden_sizes=(256,128), activation=nn.ReLU)
+    max_ep_len = 501
+
+    output_dir = get_output_dir("ddpg_modified", "256_128_relu", "furuta_pbrs3", seed)
+    if mode == "train":
+        from deps.spinningup.dansah_modified.ddpg import ddpg as ddpg_custom
+        logger_kwargs = {
+            "output_dir": output_dir,
+            "exp_name": "experiment_test0_" + output_dir,
+            "log_frequency": 2000
+        }
+        ddpg_custom(env, test_env, ac,
+                    max_ep_len=max_ep_len,
+                    steps_per_epoch=256, 
+                    min_env_interactions=inter,
+                    logger_kwargs=logger_kwargs,
+                    start_steps=10000,
+                    perform_eval=False,
+                    pi_lr=5e-4,
+                    q_lr=5e-4)
+
+        if make_plot:
+            plot_training(output_dir)
+    else:
+        # eval
+        from custom_envs.furuta_swing_up_eval import FurutaPendulumEnvEvalWrapper
+        from deps.spinningup.dansah_custom import test_policy
+        from deps.visualizer.visualizer import plot_animated
+
+        env, get_action = test_policy.load_policy_and_env(output_dir,
+                                                          'last',
+                                                          deterministic=False,
+                                                          force_disc=False)
+        env = FurutaPendulumEnvEvalWrapper(env=env, seed=seed, qube2=False)
+        env.collect_data()
+
+        test_policy.run_policy(env, get_action, max_ep_len=max_ep_len, num_episodes=5, render=False)
+        collected_data = env.get_data()
+        env.close()
+        independent_furuta_data = env.get_internal_rewards()
+    
+        assert collected_data is not None, "No data was collected for rendering!"
+        name = "%s - %s" % ("ddpg", "256_128_relu")
+        best_episode_idx = np.argmax(independent_furuta_data) # Visualize the best episode
+        plot_data = collected_data[best_episode_idx]
+        plot_animated(phis=plot_data["phis"], thetas=plot_data["thetas"], l_arm=1.0, l_pendulum=1.0, 
+                      frame_rate=50, name=name, save_as=None)
+
+        print("Independently defined evaluation data:", independent_furuta_data)
+        eval_table = {"furuta_pbrs3": {"256_128_relu": {"ddpg": independent_furuta_data}}}
+        import datetime
+        eval_table['_debug'] = "eval_table created at %s, using seeds %s." % (datetime.datetime.now(), [seed])
+        with open(get_table_data_filepath(), "wb") as f:
+            pickle.dump(eval_table, f)
+
+
+if __name__ == "__main__":
+    import argparse
+    argparser = argparse.ArgumentParser()
+    argparser.add_argument("mode", choices={"train", "eval"})
+    argparser.add_argument("-s", "--seed", type=int, help="The seed to use", default=0)
+    argparser.add_argument("-i", "--inter", type=int, help="The number of interactions to target", default=500_000)
+    argparser.add_argument("-p", "--plot", action="store_true", help="Produce plots")
+    args = argparser.parse_args()
+
+    #legacy_implementation(args.mode, seed=args.seed, inter=args.inter, make_plot=args.plot)
+    new_implementation(args.mode, seed=args.seed, inter=args.inter, make_plot=args.plot)
