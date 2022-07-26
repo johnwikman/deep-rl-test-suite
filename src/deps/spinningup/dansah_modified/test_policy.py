@@ -63,30 +63,6 @@ def load_policy_and_env(fpath, itr='last', deterministic=False, force_disc=False
     return env, get_action
 
 
-#def load_tf_policy(fpath, itr, deterministic=False):
-#    """ Load a tensorflow policy saved with Spinning Up Logger."""
-#
-#    fname = osp.join(fpath, 'tf1_save'+itr)
-#    print('\n\nLoading from %s.\n\n'%fname)
-#
-#    # load the things!
-#    sess = tf.Session()
-#    model = restore_tf_graph(sess, fname)
-#
-#    # get the correct op for executing actions
-#    if deterministic and 'mu' in model.keys():
-#        # 'deterministic' is only a valid option for SAC policies
-#        print('Using deterministic action op.')
-#        action_op = model['mu']
-#    else:
-#        print('Using default action op.')
-#        action_op = model['pi']
-#
-#    # make function for producing an action given a single state
-#    get_action = lambda x : sess.run(action_op, feed_dict={model['x']: x[None,:]})[0]
-#
-#    return get_action
-
 
 def load_pytorch_policy(fpath, itr, deterministic=False, force_disc=False):
     """ Load a pytorch policy saved with Spinning Up Logger."""
@@ -95,6 +71,10 @@ def load_pytorch_policy(fpath, itr, deterministic=False, force_disc=False):
     print('\n\nLoading from %s.\n\n'%fname)
 
     model = torch.load(fname)
+    assert isinstance(model, list), f"expected list, got {type(model)}"
+    assert len(model) == 2, f"expected list of length 2, got length {len(model)}"
+    q_model = model[0]
+    pi_model = model[1]
     # print(model) # Investigate weights and bias terms
     # for param in model.parameters():
     #     print(param.data)
@@ -103,7 +83,7 @@ def load_pytorch_policy(fpath, itr, deterministic=False, force_disc=False):
     def get_action(x):
         with torch.no_grad():
             x = torch.as_tensor(x, dtype=torch.float32)
-            action = model.act(x)
+            action = pi_model.act(x)
             if force_disc:
                 if len(action.shape) >= 1 and action.shape[0] == 1:
                     action = action[0]
@@ -144,19 +124,3 @@ def run_policy(env, get_action, max_ep_len=None, num_episodes=100, render=True):
     logger.log_tabular('EpLen', average_only=True)
     logger.dump_tabular()
     return eval_data
-
-
-if __name__ == '__main__':
-    import argparse
-    parser = argparse.ArgumentParser()
-    parser.add_argument('fpath', type=str)
-    parser.add_argument('--len', '-l', type=int, default=0)
-    parser.add_argument('--episodes', '-n', type=int, default=100)
-    parser.add_argument('--norender', '-nr', action='store_true')
-    parser.add_argument('--itr', '-i', type=int, default=-1)
-    parser.add_argument('--deterministic', '-d', action='store_true')
-    args = parser.parse_args()
-    env, get_action = load_policy_and_env(args.fpath, 
-                                          args.itr if args.itr >=0 else 'last',
-                                          args.deterministic)
-    run_policy(env, get_action, args.len, args.episodes, not(args.norender))

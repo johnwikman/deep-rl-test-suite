@@ -4,8 +4,17 @@ import torch
 from torch.optim import Adam
 import gym
 import time
-from . import net
 from .logx import EpochLogger
+
+
+def combined_shape(length, shape=None):
+    if shape is None:
+        return (length,)
+    return (length, shape) if np.isscalar(shape) else (length, *shape)
+
+
+def count_vars(module):
+    return sum([np.prod(p.shape) for p in module.parameters()])
 
 
 class ReplayBuffer:
@@ -14,9 +23,9 @@ class ReplayBuffer:
     """
 
     def __init__(self, obs_dim, act_dim, size):
-        self.obs_buf = np.zeros(net.combined_shape(size, obs_dim), dtype=np.float32)
-        self.obs2_buf = np.zeros(net.combined_shape(size, obs_dim), dtype=np.float32)
-        self.act_buf = np.zeros(net.combined_shape(size, act_dim), dtype=np.float32)
+        self.obs_buf = np.zeros(combined_shape(size, obs_dim), dtype=np.float32)
+        self.obs2_buf = np.zeros(combined_shape(size, obs_dim), dtype=np.float32)
+        self.act_buf = np.zeros(combined_shape(size, act_dim), dtype=np.float32)
         self.rew_buf = np.zeros(size, dtype=np.float32)
         self.done_buf = np.zeros(size, dtype=np.float32)
         self.ptr, self.size, self.max_size = 0, 0, size
@@ -41,7 +50,7 @@ class ReplayBuffer:
 
 
 
-def ddpg(env, test_env, ac, steps_per_epoch=4000, epochs=100, min_env_interactions=0,
+def ddpg(env, test_env, q, pi, steps_per_epoch=4000, epochs=100, min_env_interactions=0,
          replay_size=int(1e6), gamma=0.99, polyak=0.995, pi_lr=1e-3, q_lr=1e-3,
          batch_size=100, start_steps=10000, update_after=1000,
          act_noise=0.1, perform_eval=True, max_ep_len=1000,
@@ -72,50 +81,53 @@ def ddpg(env, test_env, ac, steps_per_epoch=4000, epochs=100, min_env_interactio
 
     # Create actor-critic module and target networks
     #ac = actor_critic(env.observation_space, env.action_space, env.is_discrete, **ac_kwargs)
-    ac_targ = deepcopy(ac)
+    #ac_targ = deepcopy(ac)
+    q_targ = deepcopy(q)
+    pi_targ = deepcopy(pi)
 
     # Freeze target networks with respect to optimizers (only update via polyak averaging)
-    for p in ac_targ.parameters():
-        p.requires_grad = False
+    for targ in [q_targ, pi_targ]:
+        for p in targ.parameters():
+            p.requires_grad = False
 
     # Experience buffer
     replay_buffer = ReplayBuffer(obs_dim=obs_dim, act_dim=act_dim, size=replay_size)
 
     # Count variables (protip: try to get a feel for how different size networks behave!)
-    var_counts = tuple(net.count_vars(module) for module in [ac.pi, ac.q])
+    var_counts = tuple(count_vars(module) for module in [pi, q])
     logger.log('\nNumber of parameters: \t pi: %d, \t q: %d\n'%var_counts)
 
     # Set up function for computing DDPG Q-loss
     def compute_loss_q(data):
         o, a, r, o2, d = data['obs'], data['act'], data['rew'], data['obs2'], data['done']
 
-        q = ac.q(o,a)
+        qval = q(o,a)
 
         # Bellman backup for Q function
         with torch.no_grad():
-            q_pi_targ = ac_targ.q(o2, ac_targ.pi(o2))
+            q_pi_targ = q_targ(o2, pi_targ(o2))
             backup = r + gamma * (1 - d) * q_pi_targ
 
         # MSE loss against Bellman backup
-        loss_q = ((q - backup)**2).mean()
+        loss_q = ((qval - backup)**2).mean()
 
         # Useful info for logging
-        loss_info = dict(QVals=q.detach().numpy())
+        loss_info = dict(QVals=qval.detach().numpy())
 
         return loss_q, loss_info
 
     # Set up function for computing DDPG pi loss
     def compute_loss_pi(data):
         o = data['obs']
-        q_pi = ac.q(o, ac.pi(o))
+        q_pi = q(o, pi(o))
         return -q_pi.mean()
 
     # Set up optimizers for policy and q-function
-    pi_optimizer = Adam(ac.pi.parameters(), lr=pi_lr)
-    q_optimizer = Adam(ac.q.parameters(), lr=q_lr)
+    pi_optimizer = Adam(pi.parameters(), lr=pi_lr)
+    q_optimizer = Adam(q.parameters(), lr=q_lr)
 
     # Set up model saving
-    logger.setup_pytorch_saver(ac)
+    logger.setup_pytorch_saver([q, pi])
 
     def update(data):
         # First run one gradient descent step for Q.
@@ -126,7 +138,7 @@ def ddpg(env, test_env, ac, steps_per_epoch=4000, epochs=100, min_env_interactio
 
         # Freeze Q-network so you don't waste computational effort 
         # computing gradients for it during the policy learning step.
-        for p in ac.q.parameters():
+        for p in q.parameters():
             p.requires_grad = False
 
         # Next run one gradient descent step for pi.
@@ -136,7 +148,7 @@ def ddpg(env, test_env, ac, steps_per_epoch=4000, epochs=100, min_env_interactio
         pi_optimizer.step()
 
         # Unfreeze Q-network so you can optimize it at next DDPG step.
-        for p in ac.q.parameters():
+        for p in q.parameters():
             p.requires_grad = True
 
         # Record things
@@ -144,14 +156,15 @@ def ddpg(env, test_env, ac, steps_per_epoch=4000, epochs=100, min_env_interactio
 
         # Finally, update target networks by polyak averaging.
         with torch.no_grad():
-            for p, p_targ in zip(ac.parameters(), ac_targ.parameters()):
-                # NB: We use an in-place operations "mul_", "add_" to update target
-                # params, as opposed to "mul" and "add", which would make new tensors.
-                p_targ.data.mul_(polyak)
-                p_targ.data.add_((1 - polyak) * p.data)
+            for n, n_targ in [(q, q_targ), (pi, pi_targ)]:
+                for p, p_targ in zip(n.parameters(), n_targ.parameters()):
+                    # NB: We use an in-place operations "mul_", "add_" to update target
+                    # params, as opposed to "mul" and "add", which would make new tensors.
+                    p_targ.data.mul_(polyak)
+                    p_targ.data.add_((1 - polyak) * p.data)
 
     def get_action(o, noise_scale):
-        a = ac.act(torch.as_tensor(o, dtype=torch.float32))
+        a = pi.act(torch.as_tensor(o, dtype=torch.float32))
         a += noise_scale * np.random.randn(act_dim)
         if env.is_discrete:
             if len(a.shape) >= 1 and a.shape[0] == 1:
@@ -168,10 +181,10 @@ def ddpg(env, test_env, ac, steps_per_epoch=4000, epochs=100, min_env_interactio
                 ep_ret += r
                 ep_len += 1
             logger.store(TestEpRet=ep_ret, TestEpLen=ep_len)
-    
+
     if min_env_interactions != 0: # Added by dansah
         epochs = int(np.ceil(min_env_interactions / steps_per_epoch))
-    
+
     # Set save frequency. The final model is always saved.
     latest_saved_epoch = 0
     if save_freq < 1:

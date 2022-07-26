@@ -17,6 +17,7 @@ import torch.nn as nn
 import numpy as np
 import os
 import pickle
+import datetime
 
 BASE_DIR = os.path.join('.', 'out%s' % os.sep)  # The base directory for storing the output of the algorithms.
 WORK_DIR = pathlib.Path().resolve()
@@ -183,17 +184,55 @@ def legacy_implementation(mode: str, seed=0, inter=0, make_plot=False):
 
         print("Independently defined evaluation data:", independent_furuta_data)
         eval_table = {"furuta_pbrs3": {"256_128_relu": {"ddpg": independent_furuta_data}}}
-        import datetime
         eval_table['_debug'] = "eval_table created at %s, using seeds %s." % (datetime.datetime.now(), [seed])
         with open(get_table_data_filepath(), "wb") as f:
             pickle.dump(eval_table, f)
+
+# -----------  ^^^^ OLD STUFF ^^^^  ----------- #
+
+
+class Critic(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.layers = nn.Sequential(
+            nn.Linear(5, 256),
+            nn.ReLU(),
+            nn.Linear(256, 128),
+            nn.ReLU(),
+            nn.Linear(128, 1)
+        )
+
+    def forward(self, obs, act):
+        qval = self.layers(torch.cat([obs, act], dim=-1))
+        return torch.squeeze(qval, -1) # Critical to ensure q has right shape.
+
+
+class Actor(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.layers = nn.Sequential(
+            nn.Linear(4, 256),
+            nn.ReLU(),
+            nn.Linear(256, 128),
+            nn.ReLU(),
+            nn.Linear(128, 1),
+            nn.Tanh()
+        )
+        #self.scale = (action_space.high[0] - action_space.low[0]) / 2
+        #self.mid = act_limit_lower + self.act_limit
+
+    def forward(self, obs):
+        return self.layers(obs).mul(200.0)
+
+    def act(self, obs):
+        with torch.no_grad():
+            return self.forward(obs).numpy()
 
 
 def new_implementation(mode: str, seed=0, inter=0, make_plot=False):
     """
     Heavily modified implementation, using a different flow.
     """
-    from deps.spinningup.dansah_modified.net import MLPActorCritic
     print("Setting up environment")
 
     torch.manual_seed(seed)
@@ -207,8 +246,15 @@ def new_implementation(mode: str, seed=0, inter=0, make_plot=False):
     test_env.seed(seed)
     test_env.action_space.seed(seed)
 
-    ac = MLPActorCritic(env.observation_space, env.action_space, env.is_discrete,
-                        hidden_sizes=(256,128), activation=nn.ReLU)
+    # Sanity check for constants later on
+    assert env.MAX_TORQUE == 200.0
+    assert len(env.observation_space.low) == 4
+    assert len(env.action_space.low) == 1
+
+
+    q = Critic()
+    pi = Actor()
+
     max_ep_len = 501
 
     output_dir = get_output_dir("ddpg_modified", "256_128_relu", "furuta_pbrs3", seed)
@@ -219,7 +265,7 @@ def new_implementation(mode: str, seed=0, inter=0, make_plot=False):
             "exp_name": "experiment_test0_" + output_dir,
             "log_frequency": 2000
         }
-        ddpg_custom(env, test_env, ac,
+        ddpg_custom(env, test_env, q, pi,
                     max_ep_len=max_ep_len,
                     steps_per_epoch=256, 
                     min_env_interactions=inter,
@@ -234,7 +280,7 @@ def new_implementation(mode: str, seed=0, inter=0, make_plot=False):
     else:
         # eval
         from custom_envs.furuta_swing_up_eval import FurutaPendulumEnvEvalWrapper
-        from deps.spinningup.dansah_custom import test_policy
+        from deps.spinningup.dansah_modified import test_policy
         from deps.visualizer.visualizer import plot_animated
 
         env, get_action = test_policy.load_policy_and_env(output_dir,
@@ -258,7 +304,6 @@ def new_implementation(mode: str, seed=0, inter=0, make_plot=False):
 
         print("Independently defined evaluation data:", independent_furuta_data)
         eval_table = {"furuta_pbrs3": {"256_128_relu": {"ddpg": independent_furuta_data}}}
-        import datetime
         eval_table['_debug'] = "eval_table created at %s, using seeds %s." % (datetime.datetime.now(), [seed])
         with open(get_table_data_filepath(), "wb") as f:
             pickle.dump(eval_table, f)
