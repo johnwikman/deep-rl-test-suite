@@ -1,8 +1,8 @@
 from copy import deepcopy
 import numpy as np
 import torch
+import random
 from torch.optim import Adam
-import gym
 import time
 from .logx import EpochLogger
 
@@ -17,37 +17,27 @@ def count_vars(module):
     return sum([np.prod(p.shape) for p in module.parameters()])
 
 
-class ReplayBuffer:
-    """
-    A simple FIFO experience replay buffer for DDPG agents.
-    """
+class ReplayMemory:
+    def __init__(self, capacity):
+        assert capacity > 0, "must have a positive capacity"
+        self.__store = []
+        self.__start = 0
+        self.capacity = capacity
 
-    def __init__(self, obs_dim, act_dim, size):
-        self.obs_buf = np.zeros(combined_shape(size, obs_dim), dtype=np.float32)
-        self.obs2_buf = np.zeros(combined_shape(size, obs_dim), dtype=np.float32)
-        self.act_buf = np.zeros(combined_shape(size, act_dim), dtype=np.float32)
-        self.rew_buf = np.zeros(size, dtype=np.float32)
-        self.done_buf = np.zeros(size, dtype=np.float32)
-        self.ptr, self.size, self.max_size = 0, 0, size
+    def __len__(self):
+        return len(self.__store)
 
-    def store(self, obs, act, rew, next_obs, done):
-        self.obs_buf[self.ptr] = obs
-        self.obs2_buf[self.ptr] = next_obs
-        self.act_buf[self.ptr] = act
-        self.rew_buf[self.ptr] = rew
-        self.done_buf[self.ptr] = done
-        self.ptr = (self.ptr+1) % self.max_size
-        self.size = min(self.size+1, self.max_size)
+    def add(self, e):
+        """Adds an element to the replay memory"""
+        if len(self.__store) < self.capacity:
+            self.__store.append(e)
+        else:
+            self.__store[self.__start] = e
+            self.__start = (self.__start + 1) % self.capacity
 
-    def sample_batch(self, batch_size=32):
-        idxs = np.random.randint(0, self.size, size=batch_size)
-        batch = dict(obs=self.obs_buf[idxs],
-                     obs2=self.obs2_buf[idxs],
-                     act=self.act_buf[idxs],
-                     rew=self.rew_buf[idxs],
-                     done=self.done_buf[idxs])
-        return {k: torch.as_tensor(v, dtype=torch.float32) for k,v in batch.items()}
-
+    def sample(self, k):
+        """Returns a sample of k elements."""
+        return random.choices(self.__store, k=k)
 
 
 def ddpg(env, test_env, q, pi, steps_per_epoch=4000, epochs=100, min_env_interactions=0,
@@ -85,13 +75,8 @@ def ddpg(env, test_env, q, pi, steps_per_epoch=4000, epochs=100, min_env_interac
     q_targ = deepcopy(q)
     pi_targ = deepcopy(pi)
 
-    # Freeze target networks with respect to optimizers (only update via polyak averaging)
-    for targ in [q_targ, pi_targ]:
-        for p in targ.parameters():
-            p.requires_grad = False
-
     # Experience buffer
-    replay_buffer = ReplayBuffer(obs_dim=obs_dim, act_dim=act_dim, size=replay_size)
+    replay_buffer = ReplayMemory(replay_size)
 
     # Count variables (protip: try to get a feel for how different size networks behave!)
     var_counts = tuple(count_vars(module) for module in [pi, q])
@@ -99,7 +84,12 @@ def ddpg(env, test_env, q, pi, steps_per_epoch=4000, epochs=100, min_env_interac
 
     # Set up function for computing DDPG Q-loss
     def compute_loss_q(data):
-        o, a, r, o2, d = data['obs'], data['act'], data['rew'], data['obs2'], data['done']
+        #o, a, r, o2, d = data['obs'], data['act'], data['rew'], data['obs2'], data['done']
+        o = torch.as_tensor(np.array([d[0] for d in data]), dtype=torch.float32)
+        a = torch.as_tensor(np.array([d[1] for d in data]), dtype=torch.float32)
+        r = torch.as_tensor(np.array([d[2] for d in data]), dtype=torch.float32)
+        o2 = torch.as_tensor(np.array([d[3] for d in data]), dtype=torch.float32)
+        d = torch.as_tensor(np.array([d[4] for d in data]), dtype=torch.float32)
 
         qval = q(o,a)
 
@@ -118,7 +108,8 @@ def ddpg(env, test_env, q, pi, steps_per_epoch=4000, epochs=100, min_env_interac
 
     # Set up function for computing DDPG pi loss
     def compute_loss_pi(data):
-        o = data['obs']
+        #o = data['obs']
+        o = torch.as_tensor(np.array([d[0] for d in data]), dtype=torch.float32)
         q_pi = q(o, pi(o))
         return -q_pi.mean()
 
@@ -136,20 +127,11 @@ def ddpg(env, test_env, q, pi, steps_per_epoch=4000, epochs=100, min_env_interac
         loss_q.backward()
         q_optimizer.step()
 
-        # Freeze Q-network so you don't waste computational effort 
-        # computing gradients for it during the policy learning step.
-        for p in q.parameters():
-            p.requires_grad = False
-
         # Next run one gradient descent step for pi.
         pi_optimizer.zero_grad()
         loss_pi = compute_loss_pi(data)
         loss_pi.backward()
         pi_optimizer.step()
-
-        # Unfreeze Q-network so you can optimize it at next DDPG step.
-        for p in q.parameters():
-            p.requires_grad = True
 
         # Record things
         logger.store(LossQ=loss_q.item(), LossPi=loss_pi.item(), **loss_info)
@@ -220,7 +202,7 @@ def ddpg(env, test_env, q, pi, steps_per_epoch=4000, epochs=100, min_env_interac
         d = False if ep_len==max_ep_len else d
 
         # Store experience to replay buffer
-        replay_buffer.store(o, a, r, o2, d)
+        replay_buffer.add((o, a, r, o2, d))
 
         # Super critical, easy to overlook step: make sure to update 
         # most recent observation!
@@ -236,7 +218,7 @@ def ddpg(env, test_env, q, pi, steps_per_epoch=4000, epochs=100, min_env_interac
         if (t+1) >= update_after and (t+1) % steps_per_epoch == 0:
             epoch += 1 # NOTE: Technically, the amount of updates is steps_per_epoch times larger than this value.
             for _ in range(steps_per_epoch):
-                batch = replay_buffer.sample_batch(batch_size)
+                batch = replay_buffer.sample(batch_size)
                 update(data=batch)
 
         # End of time step handling
