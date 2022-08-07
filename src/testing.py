@@ -10,6 +10,7 @@ By: dansah
 """
 
 import pathlib
+import copy
 
 import torch
 import torch.nn as nn
@@ -124,73 +125,6 @@ def plot_training(output_dir):
     assert webbrowser.get().open("file://" + res_file)
 
 
-def legacy_implementation(mode: str, seed=0, inter=0, make_plot=False):
-    # env = "furuta_pbrs3"
-    env_fn = make_env_pbrs3
-    max_ep_len = 501
-
-    output_dir = get_output_dir("ddpg", "256_128_relu", "furuta_pbrs3", seed)
-    if mode == "train":
-        from deps.spinningup.dansah_custom.ddpg import ddpg
-
-        ac_kwargs = {
-            "hidden_sizes": [256, 128],
-            "activation": nn.ReLU
-        }
-        logger_kwargs = {
-            "output_dir": output_dir,
-            "exp_name": "experiment_test0_" + output_dir,
-            "log_frequency": 2000
-        }
-
-        ddpg(env_fn=env_fn,
-             ac_kwargs=ac_kwargs,
-             max_ep_len=max_ep_len,
-             steps_per_epoch=256, 
-             min_env_interactions=inter,
-             logger_kwargs=logger_kwargs,
-             seed=seed,
-             start_steps=10000,
-             perform_eval=False,
-             pi_lr=5e-4,
-             q_lr=5e-4)
-
-        if make_plot:
-            plot_training(output_dir)
-    else:
-        # eval
-        from custom_envs.furuta_swing_up_eval import FurutaPendulumEnvEvalWrapper
-        from deps.spinningup.dansah_custom import test_policy
-        from deps.visualizer.visualizer import plot_animated
-
-        env, get_action = test_policy.load_policy_and_env(output_dir,
-                                                          'last',
-                                                          deterministic=False,
-                                                          force_disc=False)
-        env = FurutaPendulumEnvEvalWrapper(env=env, seed=seed, qube2=False)
-        env.collect_data()
-
-        test_policy.run_policy(env, get_action, max_ep_len=max_ep_len, num_episodes=5, render=False)
-        collected_data = env.get_data()
-        env.close()
-        independent_furuta_data = env.get_internal_rewards()
-    
-        assert collected_data is not None, "No data was collected for rendering!"
-        name = "%s - %s" % ("ddpg", "256_128_relu")
-        best_episode_idx = np.argmax(independent_furuta_data) # Visualize the best episode
-        plot_data = collected_data[best_episode_idx]
-        plot_animated(phis=plot_data["phis"], thetas=plot_data["thetas"], l_arm=1.0, l_pendulum=1.0, 
-                      frame_rate=50, name=name, save_as=None)
-
-        print("Independently defined evaluation data:", independent_furuta_data)
-        eval_table = {"furuta_pbrs3": {"256_128_relu": {"ddpg": independent_furuta_data}}}
-        eval_table['_debug'] = "eval_table created at %s, using seeds %s." % (datetime.datetime.now(), [seed])
-        with open(get_table_data_filepath(), "wb") as f:
-            pickle.dump(eval_table, f)
-
-# -----------  ^^^^ OLD STUFF ^^^^  ----------- #
-
-
 class Critic(nn.Module):
     def __init__(self):
         super().__init__()
@@ -255,6 +189,15 @@ def new_implementation(mode: str, seed=0, inter=0, make_plot=False):
     q = Critic()
     pi = Actor()
 
+
+    q_opt = torch.optim.Adam(q.parameters(), lr=5e-4)
+    pi_opt = torch.optim.Adam(pi.parameters(), lr=5e-4)
+
+
+    #q_targ = copy.deepcopy(q)
+    #pi_targ = copy.deepcopy(pi)
+    #targ_maker = lambda: (Critic(), Actor())
+
     max_ep_len = 501
 
     output_dir = get_output_dir("ddpg_modified", "256_128_relu", "furuta_pbrs3", seed)
@@ -265,15 +208,13 @@ def new_implementation(mode: str, seed=0, inter=0, make_plot=False):
             "exp_name": "experiment_test0_" + output_dir,
             "log_frequency": 2000
         }
-        ddpg_custom(env, test_env, q, pi,
+        ddpg_custom(env, test_env, q, pi, q_opt, pi_opt,
                     max_ep_len=max_ep_len,
                     steps_per_epoch=256, 
                     min_env_interactions=inter,
                     logger_kwargs=logger_kwargs,
                     start_steps=10000,
-                    perform_eval=False,
-                    pi_lr=5e-4,
-                    q_lr=5e-4)
+                    perform_eval=False)
 
         if make_plot:
             plot_training(output_dir)
@@ -313,10 +254,9 @@ if __name__ == "__main__":
     import argparse
     argparser = argparse.ArgumentParser()
     argparser.add_argument("mode", choices={"train", "eval"})
-    argparser.add_argument("-s", "--seed", type=int, help="The seed to use", default=0)
+    argparser.add_argument("-s", "--seed", type=int, help="The seed to use", default=1993)
     argparser.add_argument("-i", "--inter", type=int, help="The number of interactions to target", default=500_000)
     argparser.add_argument("-p", "--plot", action="store_true", help="Produce plots")
     args = argparser.parse_args()
 
-    #legacy_implementation(args.mode, seed=args.seed, inter=args.inter, make_plot=args.plot)
     new_implementation(args.mode, seed=args.seed, inter=args.inter, make_plot=args.plot)

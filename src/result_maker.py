@@ -5,6 +5,8 @@ experiment that was run.
 Added by @dansah
 """
 
+from datetime import datetime
+
 def add_architecture(html_str, arch_name, diagrams_and_tables):
     """
     Adds a header for an architecture and image tags referring to the
@@ -14,6 +16,7 @@ def add_architecture(html_str, arch_name, diagrams_and_tables):
     diagrams (dict): { "diagrams": { "diagram_name1": "diagram_filepath1", ... }, "tables": { "table1": data1, ... } }
     """
     additional_str = """<h3>%s</h3>""" % arch_name
+    additional_str += "<h3>%s</h3>" % (datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
 
     diagrams = diagrams_and_tables["diagrams"]
     for diagram_name in diagrams:

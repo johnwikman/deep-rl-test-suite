@@ -40,8 +40,9 @@ class ReplayMemory:
         return random.choices(self.__store, k=k)
 
 
-def ddpg(env, test_env, q, pi, steps_per_epoch=4000, epochs=100, min_env_interactions=0,
-         replay_size=int(1e6), gamma=0.99, polyak=0.995, pi_lr=1e-3, q_lr=1e-3,
+def ddpg(env, test_env, q, pi, q_optimizer, pi_optimizer,
+         steps_per_epoch=4000, epochs=100, min_env_interactions=0,
+         replay_size=int(1e6), gamma=0.99, polyak=0.995,
          batch_size=100, start_steps=10000, update_after=1000,
          act_noise=0.1, perform_eval=True, max_ep_len=1000,
          logger_kwargs=dict(), save_freq=-1):
@@ -62,7 +63,7 @@ def ddpg(env, test_env, q, pi, steps_per_epoch=4000, epochs=100, min_env_interac
         # Action limit for clamping: critically, assumes all dimensions share the same bound!
         act_limit_lower = env.action_space.low[0]
         act_limit_upper = env.action_space.high[0]
-    
+
     # Set-up evaluation
     if perform_eval:
         num_test_episodes = 5
@@ -72,6 +73,7 @@ def ddpg(env, test_env, q, pi, steps_per_epoch=4000, epochs=100, min_env_interac
     # Create actor-critic module and target networks
     #ac = actor_critic(env.observation_space, env.action_space, env.is_discrete, **ac_kwargs)
     #ac_targ = deepcopy(ac)
+    #with torch.no_grad():
     q_targ = deepcopy(q)
     pi_targ = deepcopy(pi)
 
@@ -114,8 +116,8 @@ def ddpg(env, test_env, q, pi, steps_per_epoch=4000, epochs=100, min_env_interac
         return -q_pi.mean()
 
     # Set up optimizers for policy and q-function
-    pi_optimizer = Adam(pi.parameters(), lr=pi_lr)
-    q_optimizer = Adam(q.parameters(), lr=q_lr)
+    #pi_optimizer = Adam(pi.parameters(), lr=pi_lr)
+    #q_optimizer = Adam(q.parameters(), lr=q_lr)
 
     # Set up model saving
     logger.setup_pytorch_saver([q, pi])
