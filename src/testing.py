@@ -185,18 +185,11 @@ def new_implementation(mode: str, seed=0, inter=0, make_plot=False):
     assert len(env.observation_space.low) == 4
     assert len(env.action_space.low) == 1
 
-
     q = Critic()
     pi = Actor()
 
-
     q_opt = torch.optim.Adam(q.parameters(), lr=5e-4)
     pi_opt = torch.optim.Adam(pi.parameters(), lr=5e-4)
-
-
-    #q_targ = copy.deepcopy(q)
-    #pi_targ = copy.deepcopy(pi)
-    #targ_maker = lambda: (Critic(), Actor())
 
     max_ep_len = 501
 
@@ -213,8 +206,7 @@ def new_implementation(mode: str, seed=0, inter=0, make_plot=False):
                     steps_per_epoch=256, 
                     min_env_interactions=inter,
                     logger_kwargs=logger_kwargs,
-                    start_steps=10000,
-                    perform_eval=False)
+                    start_steps=10000)
 
         if make_plot:
             plot_training(output_dir)
