@@ -212,7 +212,6 @@ def new_implementation(mode: str, seed=0, inter=0, make_plot=False):
                     steps_per_epoch=256, 
                     min_env_interactions=inter,
                     logger_kwargs=logger_kwargs,
-                    perform_eval=False,
                     start_steps=10000)
 
         if make_plot:

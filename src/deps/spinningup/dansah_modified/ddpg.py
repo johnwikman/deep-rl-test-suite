@@ -44,7 +44,7 @@ def ddpg(env, test_env, q, pi, q_optimizer, pi_optimizer, targ_maker, #q_targ, p
          steps_per_epoch=4000, epochs=100, min_env_interactions=0,
          replay_size=int(1e6), gamma=0.99, polyak=0.995,
          batch_size=100, start_steps=10000, update_after=1000,
-         act_noise=0.1, perform_eval=True, max_ep_len=1000,
+         act_noise=0.1, max_ep_len=1000,
          logger_kwargs=dict(), save_freq=-1):
 
     # Set-up logging
@@ -63,12 +63,6 @@ def ddpg(env, test_env, q, pi, q_optimizer, pi_optimizer, targ_maker, #q_targ, p
         # Action limit for clamping: critically, assumes all dimensions share the same bound!
         act_limit_lower = env.action_space.low[0]
         act_limit_upper = env.action_space.high[0]
-    
-    # Set-up evaluation
-    if perform_eval:
-        num_test_episodes = 5
-    else:
-        num_test_episodes = 0
 
     # Create actor-critic module and target networks
     #ac = actor_critic(env.observation_space, env.action_space, env.is_discrete, **ac_kwargs)
@@ -156,16 +150,6 @@ def ddpg(env, test_env, q, pi, q_optimizer, pi_optimizer, targ_maker, #q_targ, p
             a = int(np.round(a))
         return np.clip(a, act_limit_lower, act_limit_upper)
 
-    def test_agent():
-        for j in range(num_test_episodes):
-            o, d, ep_ret, ep_len = test_env.reset(), False, 0, 0
-            while not(d or (ep_len == max_ep_len)):
-                # Take deterministic actions at test time (noise_scale=0)
-                o, r, d, _ = test_env.step(get_action(o, 0))
-                ep_ret += r
-                ep_len += 1
-            logger.store(TestEpRet=ep_ret, TestEpLen=ep_len)
-
     if min_env_interactions != 0: # Added by dansah
         epochs = int(np.ceil(min_env_interactions / steps_per_epoch))
 
@@ -239,15 +223,9 @@ def ddpg(env, test_env, q, pi, q_optimizer, pi_optimizer, targ_maker, #q_targ, p
             latest_epoch = epoch
             at_least_one_done = False
 
-            # Test the performance of the deterministic version of the agent.
-            test_agent()
-
             # Log info about epoch
             logger.log_tabular('Epoch', epoch)
             logger.log_tabular('EpRet', with_min_and_max=True)
-            if perform_eval:
-                logger.log_tabular('TestEpRet', with_min_and_max=True)
-                logger.log_tabular('TestEpLen', average_only=True)
             logger.log_tabular('EpLen', average_only=True)
             logger.log_tabular('TotalEnvInteracts', real_curr_t)
             logger.log_tabular('QVals', with_min_and_max=True)
