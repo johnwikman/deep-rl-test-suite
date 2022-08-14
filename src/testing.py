@@ -11,6 +11,7 @@ By: dansah
 
 import pathlib
 import copy
+from copy import deepcopy
 
 import torch
 import torch.nn as nn
@@ -191,6 +192,11 @@ def new_implementation(mode: str, seed=0, inter=0, make_plot=False):
     q_opt = torch.optim.Adam(q.parameters(), lr=5e-4)
     pi_opt = torch.optim.Adam(pi.parameters(), lr=5e-4)
 
+    #q_targ = Critic() #deepcopy(q)
+    #pi_targ = Actor() #deepcopy(pi)
+    def targ_maker():
+        return (Critic(), Actor())
+
     max_ep_len = 501
 
     output_dir = get_output_dir("ddpg_modified", "256_128_relu", "furuta_pbrs3", seed)
@@ -201,11 +207,12 @@ def new_implementation(mode: str, seed=0, inter=0, make_plot=False):
             "exp_name": "experiment_test0_" + output_dir,
             "log_frequency": 2000
         }
-        ddpg_custom(env, test_env, q, pi, q_opt, pi_opt,
+        ddpg_custom(env, test_env, q, pi, q_opt, pi_opt, targ_maker,
                     max_ep_len=max_ep_len,
                     steps_per_epoch=256, 
                     min_env_interactions=inter,
                     logger_kwargs=logger_kwargs,
+                    perform_eval=False,
                     start_steps=10000)
 
         if make_plot:
