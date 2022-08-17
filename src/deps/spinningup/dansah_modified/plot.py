@@ -30,7 +30,6 @@ def plot_data(data, xaxis='Epoch', value="AverageEpRet", condition="Condition1",
     if isinstance(data, list):
         data = pd.concat(data, ignore_index=True)
     sns.set(style="darkgrid", font_scale=1.5)
-    #sns.tsplot(data=data, time=xaxis, value=value, unit="Unit", condition=condition, ci='sd', **kwargs)
     sns.lineplot(data=data, x=xaxis, y=value, ci="sd", **kwargs)
     """
     If you upgrade to any version of Seaborn greater than 0.8.1, switch from 
@@ -152,9 +151,9 @@ def get_all_datasets(all_logdirs, legend=None, select=None, exclude=None):
     return data
 
 
-def make_plots(all_logdirs, legend=None, xaxis=None, values=None, count=False,  
+def make_plots(data, legend=None, xaxis=None, values=None, count=False,  
                font_scale=1.5, smooth=1, select=None, exclude=None, estimator='mean', fname=None):
-    data = get_all_datasets(all_logdirs, legend, select, exclude)
+    #data = get_all_datasets(all_logdirs, legend, select, exclude)
     values = values if isinstance(values, list) else [values]
     condition = 'Condition2' if count else 'Condition1'
     estimator = getattr(np, estimator)      # choose what to show on main curve: mean? max? min?
@@ -170,73 +169,3 @@ def make_plots(all_logdirs, legend=None, xaxis=None, values=None, count=False,
         plt.savefig(fname)
     else:
         plt.show()
-
-
-def main():
-    import argparse
-    parser = argparse.ArgumentParser()
-    parser.add_argument('logdir', nargs='*')
-    parser.add_argument('--legend', '-l', nargs='*')
-    parser.add_argument('--xaxis', '-x', default='TotalEnvInteracts')
-    parser.add_argument('--value', '-y', default='Performance', nargs='*')
-    parser.add_argument('--count', action='store_true')
-    parser.add_argument('--smooth', '-s', type=int, default=1)
-    parser.add_argument('--select', nargs='*')
-    parser.add_argument('--exclude', nargs='*')
-    parser.add_argument('--est', default='mean')
-    args = parser.parse_args()
-    """
-
-    Args: 
-        logdir (strings): As many log directories (or prefixes to log 
-            directories, which the plotter will autocomplete internally) as 
-            you'd like to plot from.
-
-        legend (strings): Optional way to specify legend for the plot. The 
-            plotter legend will automatically use the ``exp_name`` from the
-            config.json file, unless you tell it otherwise through this flag.
-            This only works if you provide a name for each directory that
-            will get plotted. (Note: this may not be the same as the number
-            of logdir args you provide! Recall that the plotter looks for
-            autocompletes of the logdir args: there may be more than one 
-            match for a given logdir prefix, and you will need to provide a 
-            legend string for each one of those matches---unless you have 
-            removed some of them as candidates via selection or exclusion 
-            rules (below).)
-
-        xaxis (string): Pick what column from data is used for the x-axis.
-             Defaults to ``TotalEnvInteracts``.
-
-        value (strings): Pick what columns from data to graph on the y-axis. 
-            Submitting multiple values will produce multiple graphs. Defaults
-            to ``Performance``, which is not an actual output of any algorithm.
-            Instead, ``Performance`` refers to either ``AverageEpRet``, the 
-            correct performance measure for the on-policy algorithms, or
-            ``AverageTestEpRet``, the correct performance measure for the 
-            off-policy algorithms. The plotter will automatically figure out 
-            which of ``AverageEpRet`` or ``AverageTestEpRet`` to report for 
-            each separate logdir.
-
-        count: Optional flag. By default, the plotter shows y-values which
-            are averaged across all results that share an ``exp_name``, 
-            which is typically a set of identical experiments that only vary
-            in random seed. But if you'd like to see all of those curves 
-            separately, use the ``--count`` flag.
-
-        smooth (int): Smooth data by averaging it over a fixed window. This 
-            parameter says how wide the averaging window will be.
-
-        select (strings): Optional selection rule: the plotter will only show
-            curves from logdirs that contain all of these substrings.
-
-        exclude (strings): Optional exclusion rule: plotter will only show 
-            curves from logdirs that do not contain these substrings.
-
-    """
-
-    make_plots(args.logdir, args.legend, args.xaxis, args.value, args.count, 
-               smooth=args.smooth, select=args.select, exclude=args.exclude,
-               estimator=args.est)
-
-if __name__ == "__main__":
-    main()

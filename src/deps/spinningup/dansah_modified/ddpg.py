@@ -5,16 +5,12 @@ import random
 from torch.optim import Adam
 import time
 import logging
-from .logx import EpochLogger
+import pandas as pd
+
+#from .logx import EpochLogger
 
 LOG = logging.getLogger(__name__)
 LOG.addHandler(logging.NullHandler())
-
-
-def combined_shape(length, shape=None):
-    if shape is None:
-        return (length,)
-    return (length, shape) if np.isscalar(shape) else (length, *shape)
 
 
 def count_vars(module):
@@ -48,12 +44,20 @@ def ddpg(env, test_env, q, pi, q_optimizer, pi_optimizer, targ_maker, #q_targ, p
          steps_per_epoch=4000, epochs=100, min_env_interactions=0,
          replay_size=int(1e6), gamma=0.99, polyak=0.995,
          batch_size=100, start_steps=10000, update_after=1000,
-         act_noise=0.1, max_ep_len=1000,
-         logger_kwargs=dict(), save_freq=-1):
+         act_noise=0.1, max_ep_len=1000, save_freq=-1,
+         log_frequency=2000):
 
     # Set-up logging
-    logger = EpochLogger(**logger_kwargs)
-    logger.save_config(locals())
+    #logger = EpochLogger(**logger_kwargs)
+    #logger.save_config(locals())
+
+    statistics = pd.DataFrame(
+        index=pd.TimedeltaIndex(data=[], name="ElapsedTime"),
+        columns=["Epoch", "EpLen", "TotalEnvInteracts",
+                 "AverageEpRet", "StdEpRet", "MaxEpRet", "MinEpRet",
+                 "AverageQVals", "StdQVals", "MaxQVals", "MinQVals",
+                 "LossPi", "LossQ"]
+    )
 
     # Determine action space
     #env, test_env = env_fn(), env_fn()
@@ -75,8 +79,7 @@ def ddpg(env, test_env, q, pi, q_optimizer, pi_optimizer, targ_maker, #q_targ, p
     replay_buffer = ReplayMemory(replay_size)
 
     # Count variables (protip: try to get a feel for how different size networks behave!)
-    var_counts = tuple(count_vars(module) for module in [pi, q])
-    LOG.info("Number of parameters: (pi: %d | q: %d)" %var_counts)
+    LOG.info(f"Number of parameters: (pi: {count_vars(pi)} | q: {count_vars(q)})")
 
     # Set up function for computing DDPG Q-loss
     def compute_loss_q(data):
@@ -98,7 +101,7 @@ def ddpg(env, test_env, q, pi, q_optimizer, pi_optimizer, targ_maker, #q_targ, p
         loss_q = ((qval - backup)**2).mean()
 
         # Useful info for logging
-        loss_info = dict(QVals=qval.detach().numpy())
+        loss_info = {"QVals": qval.detach().numpy()}
 
         return loss_q, loss_info
 
@@ -114,7 +117,6 @@ def ddpg(env, test_env, q, pi, q_optimizer, pi_optimizer, targ_maker, #q_targ, p
     #q_optimizer = Adam(q.parameters(), lr=q_lr)
 
     # Set up model saving
-    logger.setup_pytorch_saver([q, pi])
 
     def update(data):
         # First run one gradient descent step for Q.
@@ -130,7 +132,8 @@ def ddpg(env, test_env, q, pi, q_optimizer, pi_optimizer, targ_maker, #q_targ, p
         pi_optimizer.step()
 
         # Record things
-        logger.store(LossQ=loss_q.item(), LossPi=loss_pi.item(), **loss_info)
+        loss_info["LossQ"] = loss_q.item()
+        loss_info["LossPi"] = loss_pi.item()
 
         # Finally, update target networks by polyak averaging.
         with torch.no_grad():
@@ -140,6 +143,8 @@ def ddpg(env, test_env, q, pi, q_optimizer, pi_optimizer, targ_maker, #q_targ, p
                     # params, as opposed to "mul" and "add", which would make new tensors.
                     p_targ.data.mul_(polyak)
                     p_targ.data.add_((1 - polyak) * p.data)
+
+        return loss_info
 
     if min_env_interactions != 0: # Added by dansah
         epochs = int(np.ceil(min_env_interactions / steps_per_epoch))
@@ -151,11 +156,21 @@ def ddpg(env, test_env, q, pi, q_optimizer, pi_optimizer, targ_maker, #q_targ, p
 
     # Prepare for interaction with environment
     at_least_one_done = False
+    prints_since_columnnames = 100
     latest_epoch = 0
     epoch = 0
     total_steps = steps_per_epoch * epochs
-    start_time = time.time()
+    start_time = pd.Timestamp.now()
     o, ep_ret, ep_len = env.reset(), 0, 0
+
+
+    logstats = {
+        "EpLen": [],
+        "EpRet": [],
+        "LossPi": [],
+        "LossQ": [],
+        "QVals": []
+    }
 
     # Main loop: collect experience in env and update/log each epoch
     for t in range(total_steps):
@@ -196,7 +211,8 @@ def ddpg(env, test_env, q, pi, q_optimizer, pi_optimizer, targ_maker, #q_targ, p
         # End of trajectory handling
         if d or (ep_len == max_ep_len):
             at_least_one_done = True
-            logger.store(EpRet=ep_ret, EpLen=ep_len)
+            logstats["EpRet"].append(ep_ret)
+            logstats["EpLen"].append(ep_len)
             o, ep_ret, ep_len = env.reset(), 0, 0
 
         # Update handling
@@ -204,31 +220,62 @@ def ddpg(env, test_env, q, pi, q_optimizer, pi_optimizer, targ_maker, #q_targ, p
             epoch += 1 # NOTE: Technically, the amount of updates is steps_per_epoch times larger than this value.
             for _ in range(steps_per_epoch):
                 batch = replay_buffer.sample(batch_size)
-                update(data=batch)
+                loss_info = update(data=batch)
+                for k, v in loss_info.items():
+                    logstats[k].append(v)
 
         # End of time step handling
 
         # Save model
         if latest_saved_epoch < epoch and (epoch % save_freq == 0 or (t+1) == total_steps):
-            logger.save_state({'env': env}, None)
+            #logger.save_state({'env': env}, None)
             latest_saved_epoch = epoch
-            LOG.info("Saved the model, at %s steps." % (t+1))
+            LOG.info(f"Saved the model, at {t+1} steps. (NOT YET IMPLEMENTED...)")
+
 
         # Logging
         real_curr_t = t +1
-        if real_curr_t % logger.log_frequency == 0 and epoch > 0:
+        if real_curr_t % log_frequency == 0 and epoch > 0:
             assert latest_epoch != epoch
             assert at_least_one_done
             latest_epoch = epoch
             at_least_one_done = False
 
+            epoch_stats = pd.DataFrame(
+                index=pd.TimedeltaIndex(data=[pd.Timestamp.now() - start_time], name="ElapsedTime"),
+                data={"Epoch": epoch, "TotalEnvInteracts": real_curr_t,
+                      "MeanEpRet": np.mean(logstats["EpRet"]),
+                      "StdEpRet": np.std(logstats["EpRet"]),
+                      "MaxEpRet": np.max(logstats["EpRet"]),
+                      "MinEpRet": np.min(logstats["EpRet"]),
+                      "MeanQVals": np.mean(logstats["QVals"]),
+                      "StdQVals": np.std(logstats["QVals"]),
+                      "MaxQVals": np.max(logstats["QVals"]),
+                      "MinQVals": np.min(logstats["QVals"]),
+                      "MeanEpLen": np.mean(logstats["EpLen"]),
+                      "MeanLossPi": np.mean(logstats["LossPi"]),
+                      "MeanLossQ": np.mean(logstats["LossQ"])}
+            )
+
+            # Reset the aggregates
+            for k in list(logstats.keys()):
+                logstats[k] = []
+
+            statistics = pd.concat([statistics, epoch_stats])
+
+            _prev_fmt = pd.options.display.float_format
+            pd.options.display.float_format = '{:,.2f}'.format
+
             # Log info about epoch
-            logger.log_tabular('Epoch', epoch)
-            logger.log_tabular('EpRet', with_min_and_max=True)
-            logger.log_tabular('EpLen', average_only=True)
-            logger.log_tabular('TotalEnvInteracts', real_curr_t)
-            logger.log_tabular('QVals', with_min_and_max=True)
-            logger.log_tabular('LossPi', average_only=True)
-            logger.log_tabular('LossQ', average_only=True)
-            logger.log_tabular('Time', time.time()-start_time)
-            logger.dump_tabular()
+            lines = str(epoch_stats).split("\n")
+            assert len(lines) == 3
+            if prints_since_columnnames >= 32:
+                LOG.info(lines[0])
+                LOG.info(lines[1])
+                prints_since_columnnames = 0
+            LOG.info(lines[2])
+            prints_since_columnnames += 1
+
+            pd.options.display.float_format = _prev_fmt
+
+    return statistics

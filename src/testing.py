@@ -29,9 +29,13 @@ LOG.addHandler(logging.NullHandler())
 
 LOG_FMT = logging.Formatter("%(asctime)s %(name)s:%(lineno)d [%(levelname)s]: %(message)s")
 
-BASE_DIR = os.path.join('.', 'out%s' % os.sep)  # The base directory for storing the output of the algorithms.
 WORK_DIR = pathlib.Path().resolve()
+BASE_DIR = os.path.join(WORK_DIR, "out")  # The base directory for storing the output of the algorithms.
 
+MODEL_PATH = os.path.join(BASE_DIR, "ddpg_modified.pkl")
+STATS_PATH = os.path.join(BASE_DIR, "ddpg_stats.pkl")
+PLOT_PATH = os.path.join(BASE_DIR, "ddpg_mean_epret.svg")
+HTML_PATH = os.path.join(BASE_DIR, "out.html")
 
 def make_env_pbrs3():
     """
@@ -52,20 +56,6 @@ def get_output_dir(alg_name, arch_name, env_name, seed):
     """
     return os.path.join(BASE_DIR + env_name, alg_name, arch_name, "seed" + str(seed) + os.sep)
 
-def get_diagram_filepath(env_name, arch_name):
-    """
-    Returns the full filepath that the diagram should use given
-    the provided arguments.
-    """
-    return os.path.join(WORK_DIR, "out", "res", env_name, arch_name + ".svg")
-
-def get_res_filepath():
-    """
-    Returns an appropriate full filepath for the html-file
-    with the results.
-    """
-    return os.path.join(WORK_DIR, "out", "res.html")
-
 
 def get_table_data_filepath():
     """
@@ -76,48 +66,38 @@ def get_table_data_filepath():
     return os.path.join(BASE_DIR, "eval_table")
 
 
-def plot_training(output_dir):
-    # plot
+def plot_training(statistics):
     import webbrowser
-    from deps.spinningup.dansah_modified import plot
+    import seaborn as sns
+    import matplotlib.pyplot as plt
     from result_maker import make_html
-    fname = get_diagram_filepath("furuta_pbrs3", "256_128_relu")
     res_maker_dict = {
         "furuta_pbrs3": {
             "256_128_relu": {
-                "diagrams": {"Performance": fname}
+                "diagrams": {"Performance": PLOT_PATH}
             }
         }
     }
     LOG.info("Analyzing metrics for environment furuta_pbrs3")
-    plot.make_plots([output_dir], legend=["ddpg"], xaxis='TotalEnvInteracts', values=["Performance"], count=False,
-                    smooth=1, select=None, exclude=None, estimator='mean', fname=fname)
-    eval_table = None
-    try:
-        with open(get_table_data_filepath(), "rb") as f:
-            eval_table = pickle.load(f)
-            LOG.info("Loaded eval_table: %s" % eval_table['_debug'])
-    except:
-        LOG.info("Could not load evaluation table data. Run an evaluation on the Furuta environments to generate it.")
-    # Process eval. table data.
-    if eval_table is not None:
-        for env_name in eval_table:
-            if env_name.startswith('_'):
-                continue
-            for arch_name in eval_table[env_name]:
-                eval_2d_table_data = [["Alg", "Mean", "Std"]]
-                for alg_name in eval_table[env_name][arch_name]:
-                    eval_data = eval_table[env_name][arch_name][alg_name]
-                    eval_2d_table_data.append([alg_name, np.mean(eval_data), np.std(eval_data)])
-                try:
-                    res_maker_dict[env_name][arch_name]["tables"] = {"Independent evaluation data": eval_2d_table_data}
-                except:
-                    LOG.error("Failed to add evaluation table for %s %s: Missing entry in result dict." %
-                              (env_name, arch_name))
-    res_file = get_res_filepath()
-    make_html(res_file, res_maker_dict)
-    print(res_file)
-    assert webbrowser.get().open("file://" + res_file)
+
+    plt.figure()
+    sns.set(style="darkgrid", font_scale=1.5)
+    sns.lineplot(data=statistics, x="TotalEnvInteracts", y="MeanEpRet", ci="sd")
+
+    plt.legend(loc='best').set_draggable(True)
+
+    if statistics["TotalEnvInteracts"].max() > 5e3:
+        # Just some formatting niceness: x-axis scale in scientific notation if max x is large
+        plt.ticklabel_format(style='sci', axis='x', scilimits=(0,0))
+
+    plt.tight_layout(pad=0.5)
+
+    plt.savefig(PLOT_PATH)
+
+    LOG.info(f"generating {HTML_PATH}")
+    make_html(HTML_PATH, res_maker_dict)
+    LOG.info("opening in webbrowser")
+    assert webbrowser.get().open("file://" + HTML_PATH)
 
 
 class Critic(nn.Module):
@@ -158,7 +138,7 @@ class Actor(nn.Module):
             return self.forward(obs).numpy()
 
 
-def new_implementation(mode: str, seed=0, inter=0, make_plot=False):
+def new_implementation(seed=0, inter=0, train=False, plot=False, evaluate=False):
     """
     Heavily modified implementation, using a different flow.
     """
@@ -175,6 +155,8 @@ def new_implementation(mode: str, seed=0, inter=0, make_plot=False):
     env.action_space.seed(seed)
     test_env.seed(seed)
     test_env.action_space.seed(seed)
+    plot
+    evaluate
 
     # Sanity check for constants later on
     assert env.MAX_TORQUE == 200.0
@@ -187,69 +169,105 @@ def new_implementation(mode: str, seed=0, inter=0, make_plot=False):
     q_opt = torch.optim.Adam(q.parameters(), lr=5e-4)
     pi_opt = torch.optim.Adam(pi.parameters(), lr=5e-4)
 
-    #q_targ = Critic() #deepcopy(q)
-    #pi_targ = Actor() #deepcopy(pi)
     def targ_maker():
         return (Critic(), Actor())
 
     max_ep_len = 501
+    num_eval_episodes = 5
+    statistics = None
 
-    output_dir = get_output_dir("ddpg_modified", "256_128_relu", "furuta_pbrs3", seed)
-    if mode == "train":
+    if train:
+        LOG.info("Training")
         from deps.spinningup.dansah_modified.ddpg import ddpg as ddpg_custom
-        logger_kwargs = {
-            "output_dir": output_dir,
-            "exp_name": "experiment_test0_" + output_dir,
-            "log_frequency": 2000
-        }
-        ddpg_custom(env, test_env, q, pi, q_opt, pi_opt, targ_maker,
-                    max_ep_len=max_ep_len,
-                    steps_per_epoch=256,
-                    min_env_interactions=inter,
-                    logger_kwargs=logger_kwargs,
-                    start_steps=10000)
+        statistics = ddpg_custom(env, test_env, q, pi, q_opt, pi_opt, targ_maker,
+                                 max_ep_len=max_ep_len,
+                                 steps_per_epoch=256,
+                                 min_env_interactions=inter,
+                                 log_frequency=2000,
+                                 start_steps=10000)
 
-        if make_plot:
-            plot_training(output_dir)
-    else:
-        # eval
+        LOG.info(f"Saving model to {MODEL_PATH}")
+        with open(MODEL_PATH, "wb+") as f:
+            pickle.dump([q, pi], f)
+
+        LOG.info(f"Saving statistics to {STATS_PATH}")
+        with open(STATS_PATH, "wb+") as f:
+            pickle.dump(statistics, f)
+
+    if plot:
+        LOG.info("Plotting")
+        if statistics is None:
+            LOG.info(f"Loading statistics from {STATS_PATH}")
+            with open(STATS_PATH, "rb") as f:
+                statistics = pickle.load(f)
+
+        plot_training(statistics)
+
+    if evaluate:
+        LOG.info("Evaluating")
         from custom_envs.furuta_swing_up_eval import FurutaPendulumEnvEvalWrapper
         from deps.spinningup.dansah_modified import test_policy
         from deps.visualizer.visualizer import plot_animated
 
-        env, get_action = test_policy.load_policy_and_env(output_dir,
-                                                          'last',
-                                                          deterministic=False,
-                                                          force_disc=False)
+        if not train:
+            LOG.info(f"Loading model from {MODEL_PATH}")
+            with open(MODEL_PATH, "rb") as f:
+                model = pickle.load(f)
+                #q = model[0]
+                pi = model[1]
+
+        def get_action(x):
+            with torch.no_grad():
+                x = torch.as_tensor(x, dtype=torch.float32)
+                action = pi.act(x)
+            return action
+
+        #output_dir = get_output_dir("ddpg_modified", "256_128_relu", "furuta_pbrs3", seed)
+
+        #env, get_action = test_policy.load_policy_and_env(output_dir,
+        #                                                  'last',
+        #                                                  deterministic=False,
+        #                                                  force_disc=False)
         env = FurutaPendulumEnvEvalWrapper(env=env, seed=seed, qube2=False)
         env.collect_data()
 
-        test_policy.run_policy(env, get_action, max_ep_len=max_ep_len, num_episodes=5, render=False)
+        eval_data = []
+        for ep in range(num_eval_episodes):
+            o, r, d, ep_ret, ep_len = env.reset(), 0, False, 0, 0
+            for _ in range(max_ep_len):
+                a = get_action(o)
+                o, r, d, _ = env.step(a)
+                ep_ret += r
+                ep_len += 1
+                if d:
+                    break
+
+            eval_data.append(ep_ret)
+            LOG.info(f"Episode {ep} | EpRet {ep_ret:.3f} | EpLen {ep_len}")
+
+        env.reset()
         collected_data = env.get_data()
         env.close()
         independent_furuta_data = env.get_internal_rewards()
 
         assert collected_data is not None, "No data was collected for rendering!"
-        name = "%s - %s" % ("ddpg", "256_128_relu")
+        name = "ddpg - 256_128_relu"
         best_episode_idx = np.argmax(independent_furuta_data) # Visualize the best episode
         plot_data = collected_data[best_episode_idx]
         plot_animated(phis=plot_data["phis"], thetas=plot_data["thetas"], l_arm=1.0, l_pendulum=1.0,
                       frame_rate=50, name=name, save_as=None)
 
-        LOG.info("Independently defined evaluation data:", independent_furuta_data)
-        eval_table = {"furuta_pbrs3": {"256_128_relu": {"ddpg": independent_furuta_data}}}
-        eval_table['_debug'] = "eval_table created at %s, using seeds %s." % (datetime.datetime.now(), [seed])
-        with open(get_table_data_filepath(), "wb") as f:
-            pickle.dump(eval_table, f)
+        LOG.info(f"Independently defined evaluation data: {independent_furuta_data}")
 
 
 if __name__ == "__main__":
     import argparse
     argparser = argparse.ArgumentParser()
-    argparser.add_argument("mode", choices={"train", "eval"})
     argparser.add_argument("-s", "--seed", type=int, help="The seed to use", default=1993)
     argparser.add_argument("-i", "--inter", type=int, help="The number of interactions to target", default=500_000)
     argparser.add_argument("-p", "--plot", action="store_true", help="Produce plots")
+    argparser.add_argument("-t", "--train", action="store_true", help="Perform training")
+    argparser.add_argument("-e", "--evaluate", action="store_true", help="Perform evaluation")
     argparser.add_argument("-v", "--verbose", dest="verbosity", action="count", default=0, help="Increase verbosity of prints.")
     args = argparser.parse_args()
 
@@ -262,4 +280,4 @@ if __name__ == "__main__":
     else:
         logging.getLogger().setLevel(logging.INFO)
 
-    new_implementation(args.mode, seed=args.seed, inter=args.inter, make_plot=args.plot)
+    new_implementation(seed=args.seed, inter=args.inter, train=args.train, plot=args.plot, evaluate=args.evaluate)

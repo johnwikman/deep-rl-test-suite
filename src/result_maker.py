@@ -15,29 +15,28 @@ def add_architecture(html_str, arch_name, diagrams_and_tables):
     arch_name (string): Name of the architecture.
     diagrams (dict): { "diagrams": { "diagram_name1": "diagram_filepath1", ... }, "tables": { "table1": data1, ... } }
     """
-    additional_str = """<h3>%s</h3>""" % arch_name
-    additional_str += "<h3>%s</h3>" % (datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+    additional_str = f"<h3>{arch_name}</h3>"
+    additional_str += f"<h3>{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</h3>"
 
-    diagrams = diagrams_and_tables["diagrams"]
-    for diagram_name in diagrams:
-        additional_str += """<img src=\"%s\" alt=\"%s\">""" % (diagrams[diagram_name], diagram_name)
+    diagrams = diagrams_and_tables.get("diagrams", {})
+    for diagram_name, diagram_path in diagrams.items():
+        additional_str += f"<img src=\"{diagram_path}\" alt=\"{diagram_name}\">"
 
-    tables = diagrams_and_tables.get("tables")
-    if tables is not None:
-        for table_name in tables:
-            additional_str += """<h4>%s</h4><table>""" % (table_name)
-            table = tables[table_name]
-            for i in range(len(table)):
-                additional_str += """<tr>"""
-                for j in range(len(table[i])):
-                    if i == 0:
-                        additional_str += """<th>%s</th>""" % (table[i][j])
-                    elif j == 0:
-                        additional_str += """<td>%s</td>""" % (table[i][j])
-                    else:
-                        additional_str += """<td>%.3f</td>""" % (table[i][j])
-                additional_str += """</tr>"""
-            additional_str += """</table>"""
+    tables = diagrams_and_tables.get("tables", {})
+    for table_name, table in tables.items():
+        additional_str += f"<h4>{table_name}</h4><table>"
+        table = tables[table_name]
+        for i in range(len(table)):
+            additional_str += "<tr>"
+            for j in range(len(table[i])):
+                if i == 0:
+                    additional_str += f"<th>{table[i][j]}</th>"
+                elif j == 0:
+                    additional_str += f"<td>{table[i][j]}</td>"
+                else:
+                    additional_str += f"<td>{table[i][j]:%.3f}</td>"
+            additional_str += "</tr>"
+        additional_str += "</table>"
 
     return html_str + additional_str
 
@@ -81,7 +80,7 @@ def make_html(output_file_str, environment_architecture_data):
     """
     # Initialize
     file = open(output_file_str, 'w')
-    html_str = """<html><head></head><body>"""
+    html_str = "<html><head></head><body>"
 
     # Add content
     for env_name in environment_architecture_data:
