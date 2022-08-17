@@ -218,4 +218,3 @@ def plot_animated(phis, thetas,
         print("Movie clip saved.")
     else:
         plt.show()
-

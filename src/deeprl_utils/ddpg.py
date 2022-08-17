@@ -1,13 +1,8 @@
-from copy import deepcopy
-import numpy as np
-import torch
-import random
-from torch.optim import Adam
-import time
 import logging
+import numpy as np
 import pandas as pd
-
-#from .logx import EpochLogger
+import random
+import torch
 
 LOG = logging.getLogger(__name__)
 LOG.addHandler(logging.NullHandler())
@@ -48,9 +43,6 @@ def ddpg(env, test_env, q, pi, q_optimizer, pi_optimizer, targ_maker, #q_targ, p
          log_frequency=2000):
 
     # Set-up logging
-    #logger = EpochLogger(**logger_kwargs)
-    #logger.save_config(locals())
-
     statistics = pd.DataFrame(
         index=pd.TimedeltaIndex(data=[], name="ElapsedTime"),
         columns=["Epoch", "EpLen", "TotalEnvInteracts",
@@ -60,7 +52,6 @@ def ddpg(env, test_env, q, pi, q_optimizer, pi_optimizer, targ_maker, #q_targ, p
     )
 
     # Determine action space
-    #env, test_env = env_fn(), env_fn()
     obs_dim = env.observation_space.shape
     if env.is_discrete:
         act_dim = 1
@@ -111,12 +102,6 @@ def ddpg(env, test_env, q, pi, q_optimizer, pi_optimizer, targ_maker, #q_targ, p
         o = torch.as_tensor(np.array([d[0] for d in data]), dtype=torch.float32)
         q_pi = q(o, pi(o))
         return -q_pi.mean()
-
-    # Set up optimizers for policy and q-function
-    #pi_optimizer = Adam(pi.parameters(), lr=pi_lr)
-    #q_optimizer = Adam(q.parameters(), lr=q_lr)
-
-    # Set up model saving
 
     def update(data):
         # First run one gradient descent step for Q.

@@ -46,24 +46,9 @@ def make_env_pbrs3():
     return FurutaPendulumEnvPBRS_V3()
 
 
-#########################
-# Misc helper functions #
-#########################
-def get_output_dir(alg_name, arch_name, env_name, seed):
-    """
-    Returns the approriate output directory name relative to the
-    project root for the given experiment.
-    """
-    return os.path.join(BASE_DIR + env_name, alg_name, arch_name, "seed" + str(seed) + os.sep)
-
-
-def get_table_data_filepath():
-    """
-    Returns the relative filepath at which the
-    table containing evaluation data for Furuta Pendulum
-    environments should be stored.
-    """
-    return os.path.join(BASE_DIR, "eval_table")
+def make_env():
+    from deeprl_utils.envs import FurutaPendulumEnv
+    return FurutaPendulumEnv()
 
 
 def plot_training(statistics):
@@ -127,8 +112,6 @@ class Actor(nn.Module):
             nn.Linear(128, 1),
             nn.Tanh()
         )
-        #self.scale = (action_space.high[0] - action_space.low[0]) / 2
-        #self.mid = act_limit_lower + self.act_limit
 
     def forward(self, obs):
         return self.layers(obs).mul(200.0)
@@ -148,6 +131,8 @@ def new_implementation(seed=0, inter=0, train=False, plot=False, evaluate=False)
     np.random.seed(seed)
     random.seed(seed)
 
+    #env = make_env_pbrs3()
+    #test_env = make_env_pbrs3()
     env = make_env_pbrs3()
     test_env = make_env_pbrs3()
 
@@ -178,7 +163,7 @@ def new_implementation(seed=0, inter=0, train=False, plot=False, evaluate=False)
 
     if train:
         LOG.info("Training")
-        from deps.spinningup.dansah_modified.ddpg import ddpg as ddpg_custom
+        from deeprl_utils.ddpg import ddpg as ddpg_custom
         statistics = ddpg_custom(env, test_env, q, pi, q_opt, pi_opt, targ_maker,
                                  max_ep_len=max_ep_len,
                                  steps_per_epoch=256,
@@ -206,14 +191,12 @@ def new_implementation(seed=0, inter=0, train=False, plot=False, evaluate=False)
     if evaluate:
         LOG.info("Evaluating")
         from custom_envs.furuta_swing_up_eval import FurutaPendulumEnvEvalWrapper
-        from deps.spinningup.dansah_modified import test_policy
-        from deps.visualizer.visualizer import plot_animated
+        from deeprl_utils.visualizer import plot_animated
 
         if not train:
             LOG.info(f"Loading model from {MODEL_PATH}")
             with open(MODEL_PATH, "rb") as f:
                 model = pickle.load(f)
-                #q = model[0]
                 pi = model[1]
 
         def get_action(x):
@@ -222,12 +205,6 @@ def new_implementation(seed=0, inter=0, train=False, plot=False, evaluate=False)
                 action = pi.act(x)
             return action
 
-        #output_dir = get_output_dir("ddpg_modified", "256_128_relu", "furuta_pbrs3", seed)
-
-        #env, get_action = test_policy.load_policy_and_env(output_dir,
-        #                                                  'last',
-        #                                                  deterministic=False,
-        #                                                  force_disc=False)
         env = FurutaPendulumEnvEvalWrapper(env=env, seed=seed, qube2=False)
         env.collect_data()
 
