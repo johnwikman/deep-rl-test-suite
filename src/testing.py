@@ -35,7 +35,7 @@ WORK_DIR = pathlib.Path().resolve()
 
 def make_env_pbrs3():
     """
-    Creates a Furuta Pendulum environment (swing-up) similar to PBRS V2, 
+    Creates a Furuta Pendulum environment (swing-up) similar to PBRS V2,
     but with a big neative reward on early termination.
     """
     from custom_envs.furuta_swing_up_pbrs_v3 import FurutaPendulumEnvPBRS_V3
@@ -90,7 +90,7 @@ def plot_training(output_dir):
         }
     }
     LOG.info("Analyzing metrics for environment furuta_pbrs3")
-    plot.make_plots([output_dir], legend=["ddpg"], xaxis='TotalEnvInteracts', values=["Performance"], count=False, 
+    plot.make_plots([output_dir], legend=["ddpg"], xaxis='TotalEnvInteracts', values=["Performance"], count=False,
                     smooth=1, select=None, exclude=None, estimator='mean', fname=fname)
     eval_table = None
     try:
@@ -112,7 +112,7 @@ def plot_training(output_dir):
                 try:
                     res_maker_dict[env_name][arch_name]["tables"] = {"Independent evaluation data": eval_2d_table_data}
                 except:
-                    LOG.error("Failed to add evaluation table for %s %s: Missing entry in result dict." % 
+                    LOG.error("Failed to add evaluation table for %s %s: Missing entry in result dict." %
                               (env_name, arch_name))
     res_file = get_res_filepath()
     make_html(res_file, res_maker_dict)
@@ -204,7 +204,7 @@ def new_implementation(mode: str, seed=0, inter=0, make_plot=False):
         }
         ddpg_custom(env, test_env, q, pi, q_opt, pi_opt, targ_maker,
                     max_ep_len=max_ep_len,
-                    steps_per_epoch=256, 
+                    steps_per_epoch=256,
                     min_env_interactions=inter,
                     logger_kwargs=logger_kwargs,
                     start_steps=10000)
@@ -233,7 +233,7 @@ def new_implementation(mode: str, seed=0, inter=0, make_plot=False):
         name = "%s - %s" % ("ddpg", "256_128_relu")
         best_episode_idx = np.argmax(independent_furuta_data) # Visualize the best episode
         plot_data = collected_data[best_episode_idx]
-        plot_animated(phis=plot_data["phis"], thetas=plot_data["thetas"], l_arm=1.0, l_pendulum=1.0, 
+        plot_animated(phis=plot_data["phis"], thetas=plot_data["thetas"], l_arm=1.0, l_pendulum=1.0,
                       frame_rate=50, name=name, save_as=None)
 
         LOG.info("Independently defined evaluation data:", independent_furuta_data)
