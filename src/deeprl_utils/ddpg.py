@@ -8,10 +8,6 @@ LOG = logging.getLogger(__name__)
 LOG.addHandler(logging.NullHandler())
 
 
-def count_vars(module):
-    return sum([np.prod(p.shape) for p in module.parameters()])
-
-
 class ReplayMemory:
     def __init__(self, capacity):
         assert capacity > 0, "must have a positive capacity"
@@ -70,53 +66,9 @@ def ddpg(env, test_env, q, pi, q_optimizer, pi_optimizer, targ_maker, #q_targ, p
     replay_buffer = ReplayMemory(replay_size)
 
     # Count variables (protip: try to get a feel for how different size networks behave!)
+    def count_vars(module):
+        return sum([np.prod(p.shape) for p in module.parameters()])
     LOG.info(f"Number of parameters: (pi: {count_vars(pi)} | q: {count_vars(q)})")
-
-    def update(data):
-        o = torch.as_tensor(np.array([d[0] for d in data]), dtype=torch.float32)
-        a = torch.as_tensor(np.array([d[1] for d in data]), dtype=torch.float32)
-        r = torch.as_tensor(np.array([d[2] for d in data]), dtype=torch.float32)
-        o2 = torch.as_tensor(np.array([d[3] for d in data]), dtype=torch.float32)
-        d = torch.as_tensor(np.array([d[4] for d in data]), dtype=torch.float32)
-        loss_info = {}
-
-        # First run one gradient descent step for Q.
-        q_optimizer.zero_grad()
-
-        qval = q(o,a)
-        with torch.no_grad(): # Bellman backup for Q function
-            q_pi_targ = q_targ(o2, pi_targ(o2))
-            backup = r + gamma * (1 - d) * q_pi_targ
-
-        loss_q = ((qval - backup)**2).mean() # MSE loss against Bellman backup
-        loss_info["QVals"] = qval.detach().numpy()
-
-        loss_q.backward()
-        q_optimizer.step()
-
-        # Next run one gradient descent step for pi.
-        pi_optimizer.zero_grad()
-
-        q_pi = q(o, pi(o))
-        loss_pi = -q_pi.mean()
-
-        loss_pi.backward()
-        pi_optimizer.step()
-
-        # Record things
-        loss_info["LossQ"] = loss_q.item()
-        loss_info["LossPi"] = loss_pi.item()
-
-        # Finally, update target networks by polyak averaging.
-        with torch.no_grad():
-            for n, n_targ in [(q, q_targ), (pi, pi_targ)]:
-                for p, p_targ in zip(n.parameters(), n_targ.parameters()):
-                    # NB: We use an in-place operations "mul_", "add_" to update target
-                    # params, as opposed to "mul" and "add", which would make new tensors.
-                    p_targ.data.mul_(polyak)
-                    p_targ.data.add_((1 - polyak) * p.data)
-
-        return loss_info
 
     if min_env_interactions != 0: # Added by dansah
         epochs = int(np.ceil(min_env_interactions / steps_per_epoch))
@@ -191,9 +143,46 @@ def ddpg(env, test_env, q, pi, q_optimizer, pi_optimizer, targ_maker, #q_targ, p
             epoch += 1 # NOTE: Technically, the amount of updates is steps_per_epoch times larger than this value.
             for _ in range(steps_per_epoch):
                 batch = replay_buffer.sample(batch_size)
-                loss_info = update(data=batch)
-                for k, v in loss_info.items():
-                    logstats[k].append(v)
+                bo = torch.as_tensor(np.array([d[0] for d in batch]), dtype=torch.float32)
+                ba = torch.as_tensor(np.array([d[1] for d in batch]), dtype=torch.float32)
+                br = torch.as_tensor(np.array([d[2] for d in batch]), dtype=torch.float32)
+                bo2 = torch.as_tensor(np.array([d[3] for d in batch]), dtype=torch.float32)
+                bd = torch.as_tensor(np.array([d[4] for d in batch]), dtype=torch.float32)
+
+                # First run one gradient descent step for Q.
+                q_optimizer.zero_grad()
+
+                qval = q(bo,ba)
+                with torch.no_grad(): # Bellman backup for Q function
+                    q_pi_targ = q_targ(bo2, pi_targ(bo2))
+                    backup = br + gamma * (1 - bd) * q_pi_targ
+                loss_q = ((qval - backup)**2).mean() # MSE loss against Bellman backup
+
+                loss_q.backward()
+                q_optimizer.step()
+
+                # Next run one gradient descent step for pi.
+                pi_optimizer.zero_grad()
+
+                q_pi = q(bo, pi(bo))
+                loss_pi = -q_pi.mean()
+
+                loss_pi.backward()
+                pi_optimizer.step()
+
+                # Finally, update target networks by polyak averaging.
+                with torch.no_grad():
+                    for n, n_targ in [(q, q_targ), (pi, pi_targ)]:
+                        for p, p_targ in zip(n.parameters(), n_targ.parameters()):
+                            # NB: We use an in-place operations "mul_", "add_" to update target
+                            # params, as opposed to "mul" and "add", which would make new tensors.
+                            p_targ.data.mul_(polyak)
+                            p_targ.data.add_((1 - polyak) * p.data)
+
+                # Record things
+                logstats["QVals"].append(qval.detach().numpy())
+                logstats["LossQ"].append(loss_q.item())
+                logstats["LossPi"].append(loss_pi.item())
 
         # End of time step handling
 
