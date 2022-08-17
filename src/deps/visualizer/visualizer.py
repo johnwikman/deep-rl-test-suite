@@ -56,7 +56,7 @@ def _plot_3D_axes(ax, phi, theta, l_arm, l_pendulum):
         [l_arm, 0.0, 0.0], # arm tip when phi=0
         initial_pendulum_tip_coord
     ])
-    
+
     coords = np.transpose(np.matmul(
         phi_matrix,
         np.transpose(initial_coords)

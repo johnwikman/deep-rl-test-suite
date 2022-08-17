@@ -4,7 +4,11 @@ import torch
 import random
 from torch.optim import Adam
 import time
+import logging
 from .logx import EpochLogger
+
+LOG = logging.getLogger(__name__)
+LOG.addHandler(logging.NullHandler())
 
 
 def combined_shape(length, shape=None):
@@ -65,10 +69,6 @@ def ddpg(env, test_env, q, pi, q_optimizer, pi_optimizer, targ_maker, #q_targ, p
         act_limit_upper = env.action_space.high[0]
 
     # Create actor-critic module and target networks
-    #ac = actor_critic(env.observation_space, env.action_space, env.is_discrete, **ac_kwargs)
-    #ac_targ = deepcopy(ac)
-    #q_targ = deepcopy(q)
-    #pi_targ = deepcopy(pi)
     q_targ, pi_targ = targ_maker()
 
     # Experience buffer
@@ -76,7 +76,7 @@ def ddpg(env, test_env, q, pi, q_optimizer, pi_optimizer, targ_maker, #q_targ, p
 
     # Count variables (protip: try to get a feel for how different size networks behave!)
     var_counts = tuple(count_vars(module) for module in [pi, q])
-    logger.log('\nNumber of parameters: \t pi: %d, \t q: %d\n'%var_counts)
+    LOG.info("Number of parameters: (pi: %d | q: %d)" %var_counts)
 
     # Set up function for computing DDPG Q-loss
     def compute_loss_q(data):
@@ -141,15 +141,6 @@ def ddpg(env, test_env, q, pi, q_optimizer, pi_optimizer, targ_maker, #q_targ, p
                     p_targ.data.mul_(polyak)
                     p_targ.data.add_((1 - polyak) * p.data)
 
-    def get_action(o, noise_scale):
-        a = pi.act(torch.as_tensor(o, dtype=torch.float32))
-        a += noise_scale * np.random.randn(act_dim)
-        if env.is_discrete:
-            if len(a.shape) >= 1 and a.shape[0] == 1:
-                a = a[0]
-            a = int(np.round(a))
-        return np.clip(a, act_limit_lower, act_limit_upper)
-
     if min_env_interactions != 0: # Added by dansah
         epochs = int(np.ceil(min_env_interactions / steps_per_epoch))
 
@@ -173,7 +164,15 @@ def ddpg(env, test_env, q, pi, q_optimizer, pi_optimizer, targ_maker, #q_targ, p
         # from a uniform distribution for better exploration. Afterwards, 
         # use the learned policy (with some noise, via act_noise). 
         if t > start_steps:
-            a = get_action(o, act_noise)
+            #a = get_action(o, act_noise)
+            #def get_action(o, noise_scale):
+            a = pi.act(torch.as_tensor(o, dtype=torch.float32))
+            a += act_noise * np.random.randn(act_dim)
+            if env.is_discrete:
+                if len(a.shape) >= 1 and a.shape[0] == 1:
+                    a = a[0]
+                a = int(np.round(a))
+            a = np.clip(a, act_limit_lower, act_limit_upper)
         else:
             a = env.action_space.sample()
 
@@ -213,7 +212,7 @@ def ddpg(env, test_env, q, pi, q_optimizer, pi_optimizer, targ_maker, #q_targ, p
         if latest_saved_epoch < epoch and (epoch % save_freq == 0 or (t+1) == total_steps):
             logger.save_state({'env': env}, None)
             latest_saved_epoch = epoch
-            print("NOTE: Saved the model, at %s steps." % (t+1))
+            LOG.info("Saved the model, at %s steps." % (t+1))
 
         # Logging
         real_curr_t = t +1

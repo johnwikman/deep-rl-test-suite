@@ -19,7 +19,15 @@ import torch.nn as nn
 import numpy as np
 import os
 import pickle
+import random
 import datetime
+import logging
+import sys
+
+LOG = logging.getLogger(__name__)
+LOG.addHandler(logging.NullHandler())
+
+LOG_FMT = logging.Formatter("%(asctime)s %(name)s:%(lineno)d [%(levelname)s]: %(message)s")
 
 BASE_DIR = os.path.join('.', 'out%s' % os.sep)  # The base directory for storing the output of the algorithms.
 WORK_DIR = pathlib.Path().resolve()
@@ -37,20 +45,6 @@ def make_env_pbrs3():
 #########################
 # Misc helper functions #
 #########################
-def annonuce_message(message):
-    """
-    Prints a message in a fancy way.
-    """
-    print("------------------------------------")
-    print("----> %s <----" % (message))
-    print("------------------------------------")
-
-def heads_up_message(message):
-    """
-    Prints a message in a fancy way.
-    """
-    print("----> %s <----" % (message))
-
 def get_output_dir(alg_name, arch_name, env_name, seed):
     """
     Returns the approriate output directory name relative to the
@@ -85,7 +79,7 @@ def get_table_data_filepath():
 def plot_training(output_dir):
     # plot
     import webbrowser
-    from deps.spinningup.dansah_custom import plot
+    from deps.spinningup.dansah_modified import plot
     from result_maker import make_html
     fname = get_diagram_filepath("furuta_pbrs3", "256_128_relu")
     res_maker_dict = {
@@ -95,16 +89,16 @@ def plot_training(output_dir):
             }
         }
     }
-    annonuce_message("Analyzing metrics for environment furuta_pbrs3")
+    LOG.info("Analyzing metrics for environment furuta_pbrs3")
     plot.make_plots([output_dir], legend=["ddpg"], xaxis='TotalEnvInteracts', values=["Performance"], count=False, 
                     smooth=1, select=None, exclude=None, estimator='mean', fname=fname)
     eval_table = None
     try:
         with open(get_table_data_filepath(), "rb") as f:
             eval_table = pickle.load(f)
-            heads_up_message("Loaded eval_table: %s" % eval_table['_debug'])
+            LOG.info("Loaded eval_table: %s" % eval_table['_debug'])
     except:
-        print("NOTE: Could not load evaluation table data. Run an evaluation on the Furuta environments to generate it.")
+        LOG.info("Could not load evaluation table data. Run an evaluation on the Furuta environments to generate it.")
     # Process eval. table data.
     if eval_table is not None:
         for env_name in eval_table:
@@ -118,8 +112,8 @@ def plot_training(output_dir):
                 try:
                     res_maker_dict[env_name][arch_name]["tables"] = {"Independent evaluation data": eval_2d_table_data}
                 except:
-                    print("ERROR: Failed to add evaluation table for %s %s: Missing entry in result dict." % 
-                        (env_name, arch_name))
+                    LOG.error("Failed to add evaluation table for %s %s: Missing entry in result dict." % 
+                              (env_name, arch_name))
     res_file = get_res_filepath()
     make_html(res_file, res_maker_dict)
     print(res_file)
@@ -168,10 +162,11 @@ def new_implementation(mode: str, seed=0, inter=0, make_plot=False):
     """
     Heavily modified implementation, using a different flow.
     """
-    print("Setting up environment")
+    LOG.info("Setting up environment")
 
     torch.manual_seed(seed)
     np.random.seed(seed)
+    random.seed(seed)
 
     env = make_env_pbrs3()
     test_env = make_env_pbrs3()
@@ -233,7 +228,7 @@ def new_implementation(mode: str, seed=0, inter=0, make_plot=False):
         collected_data = env.get_data()
         env.close()
         independent_furuta_data = env.get_internal_rewards()
-    
+
         assert collected_data is not None, "No data was collected for rendering!"
         name = "%s - %s" % ("ddpg", "256_128_relu")
         best_episode_idx = np.argmax(independent_furuta_data) # Visualize the best episode
@@ -241,7 +236,7 @@ def new_implementation(mode: str, seed=0, inter=0, make_plot=False):
         plot_animated(phis=plot_data["phis"], thetas=plot_data["thetas"], l_arm=1.0, l_pendulum=1.0, 
                       frame_rate=50, name=name, save_as=None)
 
-        print("Independently defined evaluation data:", independent_furuta_data)
+        LOG.info("Independently defined evaluation data:", independent_furuta_data)
         eval_table = {"furuta_pbrs3": {"256_128_relu": {"ddpg": independent_furuta_data}}}
         eval_table['_debug'] = "eval_table created at %s, using seeds %s." % (datetime.datetime.now(), [seed])
         with open(get_table_data_filepath(), "wb") as f:
@@ -255,6 +250,16 @@ if __name__ == "__main__":
     argparser.add_argument("-s", "--seed", type=int, help="The seed to use", default=1993)
     argparser.add_argument("-i", "--inter", type=int, help="The number of interactions to target", default=500_000)
     argparser.add_argument("-p", "--plot", action="store_true", help="Produce plots")
+    argparser.add_argument("-v", "--verbose", dest="verbosity", action="count", default=0, help="Increase verbosity of prints.")
     args = argparser.parse_args()
+
+    # Setup the root logger
+    stderr_handler = logging.StreamHandler(sys.stderr)
+    stderr_handler.setFormatter(LOG_FMT)
+    logging.getLogger().addHandler(stderr_handler)
+    if args.verbosity >= 1:
+        logging.getLogger().setLevel(logging.DEBUG)
+    else:
+        logging.getLogger().setLevel(logging.INFO)
 
     new_implementation(args.mode, seed=args.seed, inter=args.inter, make_plot=args.plot)
