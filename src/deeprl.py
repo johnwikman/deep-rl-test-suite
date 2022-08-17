@@ -37,14 +37,6 @@ STATS_PATH = os.path.join(BASE_DIR, "ddpg_stats.pkl")
 PLOT_PATH = os.path.join(BASE_DIR, "ddpg_mean_epret.svg")
 HTML_PATH = os.path.join(BASE_DIR, "out.html")
 
-def make_env_pbrs3():
-    """
-    Creates a Furuta Pendulum environment (swing-up) similar to PBRS V2,
-    but with a big neative reward on early termination.
-    """
-    from custom_envs.furuta_swing_up_pbrs_v3 import FurutaPendulumEnvPBRS_V3
-    return FurutaPendulumEnvPBRS_V3()
-
 
 def make_env():
     from deeprl_utils.envs import FurutaPendulumEnv
@@ -68,15 +60,11 @@ def plot_training(statistics):
     plt.figure()
     sns.set(style="darkgrid", font_scale=1.5)
     sns.lineplot(data=statistics, x="TotalEnvInteracts", y="MeanEpRet", ci="sd")
-
     plt.legend(loc='best').set_draggable(True)
-
     if statistics["TotalEnvInteracts"].max() > 5e3:
         # Just some formatting niceness: x-axis scale in scientific notation if max x is large
         plt.ticklabel_format(style='sci', axis='x', scilimits=(0,0))
-
     plt.tight_layout(pad=0.5)
-
     plt.savefig(PLOT_PATH)
 
     LOG.info(f"generating {HTML_PATH}")
@@ -131,10 +119,8 @@ def new_implementation(seed=0, inter=0, train=False, plot=False, evaluate=False)
     np.random.seed(seed)
     random.seed(seed)
 
-    #env = make_env_pbrs3()
-    #test_env = make_env_pbrs3()
-    env = make_env_pbrs3()
-    test_env = make_env_pbrs3()
+    env = make_env()
+    test_env = make_env()
 
     env.seed(seed)
     env.action_space.seed(seed)
@@ -190,7 +176,6 @@ def new_implementation(seed=0, inter=0, train=False, plot=False, evaluate=False)
 
     if evaluate:
         LOG.info("Evaluating")
-        from custom_envs.furuta_swing_up_eval import FurutaPendulumEnvEvalWrapper
         from deeprl_utils.visualizer import plot_animated
 
         if not train:
@@ -205,7 +190,7 @@ def new_implementation(seed=0, inter=0, train=False, plot=False, evaluate=False)
                 action = pi.act(x)
             return action
 
-        env = FurutaPendulumEnvEvalWrapper(env=env, seed=seed, qube2=False)
+        env.reset()
         env.collect_data()
 
         eval_data = []
@@ -225,16 +210,15 @@ def new_implementation(seed=0, inter=0, train=False, plot=False, evaluate=False)
         env.reset()
         collected_data = env.get_data()
         env.close()
-        independent_furuta_data = env.get_internal_rewards()
 
         assert collected_data is not None, "No data was collected for rendering!"
         name = "ddpg - 256_128_relu"
-        best_episode_idx = np.argmax(independent_furuta_data) # Visualize the best episode
+        best_episode_idx = np.argmax([d["total_reward"] for d in collected_data]) # Visualize the best episode
         plot_data = collected_data[best_episode_idx]
         plot_animated(phis=plot_data["phis"], thetas=plot_data["thetas"], l_arm=1.0, l_pendulum=1.0,
                       frame_rate=50, name=name, save_as=None)
 
-        LOG.info(f"Independently defined evaluation data: {independent_furuta_data}")
+        #LOG.info(f"Independently defined evaluation data: {independent_furuta_data}")
 
 
 if __name__ == "__main__":

@@ -13,24 +13,23 @@ from gym import spaces
 from gym.utils import seeding
 from typing import Optional
 
-from ...deps.ipm_python.furuta import FurutaODE
+from deps.ipm_python.furuta import FurutaODE
 
 
-"""
-File based on code from 
-https://github.com/openai/gym/blob/58aeddb62fb9d46d2d2481d1f7b0a380d8c454b1/gym/core.py 
-and
-https://github.com/openai/gym/blob/58aeddb62fb9d46d2d2481d1f7b0a380d8c454b1/gym/envs/classic_control/pendulum.py
-and (loosely)
-https://github.com/openai/gym/blob/58aeddb62fb9d46d2d2481d1f7b0a380d8c454b1/gym/envs/classic_control/acrobot.py
-The former two have no explicit license notice, but are a part of OpenAI Gym which uses the MIT License:
-https://mit-license.org/
-The latter was published under the 3-Clause BSD License:
-https://opensource.org/licenses/BSD-3-Clause
 
-Last edit: 2022-04-01
-By: dansah
-"""
+def calc_reward(theta, dthetadt, phi, dphidt, dt=0.02):
+    """
+    Calculates a reward for the given state, such that the total
+    reward for a trajectory is the number of seconds for which the 
+    system was in a satisfactory state.
+    NOTE: theta is pi when the vertical arm is upright. The angles should
+    not be wrapped.
+    """
+    reward = dt * (abs(abs(theta) - np.pi) < np.pi / 4) * (abs(phi) < 2*np.pi) * (abs(dthetadt) < 2*np.pi/3)
+    if dphidt is not None:
+        reward *= (abs(dphidt) < 2*np.pi/3)
+    return reward
+
 
 class FurutaPendulumEnv(gym.core.Env):
     """
@@ -46,7 +45,6 @@ class FurutaPendulumEnv(gym.core.Env):
         # Required
         self.MAX_TORQUE = 200 # Same as in "A Reinforcement Learning Controller for the Swing-Up of the Furuta Pendulum" by D. Guida et al. (2020)
         self.action_space = spaces.Box(low=np.array([-float(self.MAX_TORQUE)]), high=np.array([float(self.MAX_TORQUE)]), dtype=np.float16) # Experiment with np.float32 vs 16.
-        self.observation_space = spaces.Box(low=-float("inf"), high=float("inf"), shape=(5,), dtype=np.float16) # Old shape was (3,) new is (5,)
 
         self.internal_state = None
         self.START_THETA = math.pi # Radians
@@ -68,15 +66,6 @@ class FurutaPendulumEnv(gym.core.Env):
         self.is_discrete = False # Used by SLM Lab
         self.seed()
 
-        self.c1 = -1
-        self.c_lim = -10000
-        self.c2 = -5
-        self.c_tau = -0.05
-        self.c_dot_theta_2 = -0.5
-        self.theta_2_min = np.pi/2
-        self.dot_theta_2_min = 5
-        self.c_balance = 5
-
         self.observation_space = spaces.Box(low=-float("inf"), high=float("inf"), shape=(4,), dtype=np.float16)
 
         # Override constants
@@ -90,7 +79,6 @@ class FurutaPendulumEnv(gym.core.Env):
         self.c_balance = 50
 
         # Normalization constants
-        self.max_theta = 2 * np.pi # if the angle is > 2*pi, the agent has (evidently) failed
         self.max_phi = 2 * np.pi # c_lim is applied to the reward at > 2*pi, anything beyond is therefore doomed
         self.max_rot_speed = 5 * np.pi # a higher speed is unlikely to yield desirable results. not currently used.
 
@@ -176,9 +164,11 @@ class FurutaPendulumEnv(gym.core.Env):
         }
         if terminal:
             info_dict['episode'] = self.epinfo
-
-        if terminal:
             info_dict['rft'] = 'bad_state' if self.non_timelimit_termination else 'timelimit' # Reason For Termination (of the environment).
+
+        if self._collect_data:
+            self._data[-1]["total_reward"] = self.epinfo['r']
+
         return observed_state, reward, terminal, info_dict
 
     def reset(self, *, seed: Optional[int] = None, options: Optional[dict] = None):
@@ -192,7 +182,7 @@ class FurutaPendulumEnv(gym.core.Env):
         #super().reset(seed=seed) # Only works in modern versions of OpenAI Gym
         self.non_timelimit_termination = False
         self.swung_up = False
-        
+
         # Reset the internal state.
         self.internal_state = {
             "furuta_ode": FurutaODE(wrap_angles=self.wrap_angles),
@@ -202,7 +192,7 @@ class FurutaPendulumEnv(gym.core.Env):
 
         new_state = self._get_internal_state()
         if self._collect_data:
-            self._data.append({"phis": [new_state[3]], "thetas": [new_state[0]]})
+            self._data.append({"phis": [new_state[3]], "thetas": [new_state[0]], "total_reward": 0.0})
 
         return self._get_observed_state_from_internal(new_state)
 

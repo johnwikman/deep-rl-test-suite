@@ -72,47 +72,34 @@ def ddpg(env, test_env, q, pi, q_optimizer, pi_optimizer, targ_maker, #q_targ, p
     # Count variables (protip: try to get a feel for how different size networks behave!)
     LOG.info(f"Number of parameters: (pi: {count_vars(pi)} | q: {count_vars(q)})")
 
-    # Set up function for computing DDPG Q-loss
-    def compute_loss_q(data):
-        #o, a, r, o2, d = data['obs'], data['act'], data['rew'], data['obs2'], data['done']
+    def update(data):
         o = torch.as_tensor(np.array([d[0] for d in data]), dtype=torch.float32)
         a = torch.as_tensor(np.array([d[1] for d in data]), dtype=torch.float32)
         r = torch.as_tensor(np.array([d[2] for d in data]), dtype=torch.float32)
         o2 = torch.as_tensor(np.array([d[3] for d in data]), dtype=torch.float32)
         d = torch.as_tensor(np.array([d[4] for d in data]), dtype=torch.float32)
+        loss_info = {}
+
+        # First run one gradient descent step for Q.
+        q_optimizer.zero_grad()
 
         qval = q(o,a)
-
-        # Bellman backup for Q function
-        with torch.no_grad():
+        with torch.no_grad(): # Bellman backup for Q function
             q_pi_targ = q_targ(o2, pi_targ(o2))
             backup = r + gamma * (1 - d) * q_pi_targ
 
-        # MSE loss against Bellman backup
-        loss_q = ((qval - backup)**2).mean()
+        loss_q = ((qval - backup)**2).mean() # MSE loss against Bellman backup
+        loss_info["QVals"] = qval.detach().numpy()
 
-        # Useful info for logging
-        loss_info = {"QVals": qval.detach().numpy()}
-
-        return loss_q, loss_info
-
-    # Set up function for computing DDPG pi loss
-    def compute_loss_pi(data):
-        #o = data['obs']
-        o = torch.as_tensor(np.array([d[0] for d in data]), dtype=torch.float32)
-        q_pi = q(o, pi(o))
-        return -q_pi.mean()
-
-    def update(data):
-        # First run one gradient descent step for Q.
-        q_optimizer.zero_grad()
-        loss_q, loss_info = compute_loss_q(data)
         loss_q.backward()
         q_optimizer.step()
 
         # Next run one gradient descent step for pi.
         pi_optimizer.zero_grad()
-        loss_pi = compute_loss_pi(data)
+
+        q_pi = q(o, pi(o))
+        loss_pi = -q_pi.mean()
+
         loss_pi.backward()
         pi_optimizer.step()
 
@@ -159,7 +146,6 @@ def ddpg(env, test_env, q, pi, q_optimizer, pi_optimizer, targ_maker, #q_targ, p
 
     # Main loop: collect experience in env and update/log each epoch
     for t in range(total_steps):
-        
         # Until start_steps have elapsed, randomly sample actions
         # from a uniform distribution for better exploration. Afterwards, 
         # use the learned policy (with some noise, via act_noise). 
