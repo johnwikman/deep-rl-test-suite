@@ -16,7 +16,6 @@ from typing import Optional
 from deps.ipm_python.furuta import FurutaODE
 
 
-
 def calc_reward(theta, dthetadt, phi, dphidt, dt=0.02):
     """
     Calculates a reward for the given state, such that the total
@@ -288,9 +287,9 @@ class FurutaPendulumEnv(gym.core.Env):
             """
             NOTE: Theta should be pi when upright vertical.
             """
-            reward = (2*(3*np.pi - abs(abs(theta) - np.pi)) + (3*np.pi - abs(phi)) + \
-                     np.maximum(-30, 3 - abs(dthetadt)) + np.maximum(-30, 3 - abs(dphidt))) / 10
-            return reward
+            phi_reward = (2*(3*np.pi - abs(abs(theta) - np.pi)) + (3*np.pi - abs(phi)) + \
+                         np.maximum(-30, 3 - abs(dthetadt)) + np.maximum(-30, 3 - abs(dphidt))) / 10
+            return phi_reward
 
         reward = calc_reward(theta=theta_2, dthetadt=dot_theta_2, phi=theta_1, dphidt=dot_theta_1, dt=10) # Sparse
         # PBRS, as relayed in "Reward Function Design in Reinforcement Learning" by J. Eschmann (2021) and

@@ -38,41 +38,6 @@ PLOT_PATH = os.path.join(BASE_DIR, "ddpg_mean_epret.svg")
 HTML_PATH = os.path.join(BASE_DIR, "out.html")
 
 
-def make_env():
-    from deeprl_utils.envs import FurutaPendulumEnv
-    return FurutaPendulumEnv()
-
-
-def plot_training(statistics):
-    import webbrowser
-    import seaborn as sns
-    import matplotlib.pyplot as plt
-    from result_maker import make_html
-    res_maker_dict = {
-        "furuta_pbrs3": {
-            "256_128_relu": {
-                "diagrams": {"Performance": PLOT_PATH}
-            }
-        }
-    }
-    LOG.info("Analyzing metrics for environment furuta_pbrs3")
-
-    plt.figure()
-    sns.set(style="darkgrid", font_scale=1.5)
-    sns.lineplot(data=statistics, x="TotalEnvInteracts", y="MeanEpRet", ci="sd")
-    plt.legend(loc='best').set_draggable(True)
-    if statistics["TotalEnvInteracts"].max() > 5e3:
-        # Just some formatting niceness: x-axis scale in scientific notation if max x is large
-        plt.ticklabel_format(style='sci', axis='x', scilimits=(0,0))
-    plt.tight_layout(pad=0.5)
-    plt.savefig(PLOT_PATH)
-
-    LOG.info(f"generating {HTML_PATH}")
-    make_html(HTML_PATH, res_maker_dict)
-    LOG.info("opening in webbrowser")
-    assert webbrowser.get().open("file://" + HTML_PATH)
-
-
 class Critic(nn.Module):
     def __init__(self):
         super().__init__()
@@ -119,6 +84,10 @@ def new_implementation(seed=0, inter=0, train=False, plot=False, evaluate=False)
     np.random.seed(seed)
     random.seed(seed)
 
+    def make_env():
+        from deeprl_utils.envs import FurutaPendulumEnv
+        return FurutaPendulumEnv()
+
     env = make_env()
     test_env = make_env()
 
@@ -126,8 +95,6 @@ def new_implementation(seed=0, inter=0, train=False, plot=False, evaluate=False)
     env.action_space.seed(seed)
     test_env.seed(seed)
     test_env.action_space.seed(seed)
-    plot
-    evaluate
 
     # Sanity check for constants later on
     assert env.MAX_TORQUE == 200.0
@@ -167,12 +134,28 @@ def new_implementation(seed=0, inter=0, train=False, plot=False, evaluate=False)
 
     if plot:
         LOG.info("Plotting")
+        import webbrowser
+        import seaborn as sns
+        import matplotlib.pyplot as plt
+        from deeprl_utils.result_maker import make_html
+
         if statistics is None:
             LOG.info(f"Loading statistics from {STATS_PATH}")
             with open(STATS_PATH, "rb") as f:
                 statistics = pickle.load(f)
 
-        plot_training(statistics)
+        plt.figure()
+        sns.set(style="darkgrid", font_scale=1.5)
+        sns.lineplot(data=statistics, x="TotalEnvInteracts", y="MeanEpRet", ci="sd")
+        plt.legend(loc='best').set_draggable(True)
+        plt.ticklabel_format(style='sci', axis='x', scilimits=(0,0))
+        plt.tight_layout(pad=0.5)
+        plt.savefig(PLOT_PATH)
+
+        LOG.info(f"generating {HTML_PATH}")
+        html_dict = {"furuta_pbrs3": {"256_128_relu": {"diagrams": {"Performance": PLOT_PATH}}}}
+        make_html(HTML_PATH, html_dict)
+        assert webbrowser.get().open("file://" + HTML_PATH)
 
     if evaluate:
         LOG.info("Evaluating")
@@ -218,7 +201,7 @@ def new_implementation(seed=0, inter=0, train=False, plot=False, evaluate=False)
         plot_animated(phis=plot_data["phis"], thetas=plot_data["thetas"], l_arm=1.0, l_pendulum=1.0,
                       frame_rate=50, name=name, save_as=None)
 
-        #LOG.info(f"Independently defined evaluation data: {independent_furuta_data}")
+        LOG.info(f"Independently defined evaluation data: {[d['total_reward'] for d in collected_data]}")
 
 
 if __name__ == "__main__":

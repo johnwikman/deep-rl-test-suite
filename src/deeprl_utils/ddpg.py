@@ -65,11 +65,6 @@ def ddpg(env, test_env, q, pi, q_optimizer, pi_optimizer, targ_maker, #q_targ, p
     # Experience buffer
     replay_buffer = ReplayMemory(replay_size)
 
-    # Count variables (protip: try to get a feel for how different size networks behave!)
-    def count_vars(module):
-        return sum([np.prod(p.shape) for p in module.parameters()])
-    LOG.info(f"Number of parameters: (pi: {count_vars(pi)} | q: {count_vars(q)})")
-
     if min_env_interactions != 0: # Added by dansah
         epochs = int(np.ceil(min_env_interactions / steps_per_epoch))
 
