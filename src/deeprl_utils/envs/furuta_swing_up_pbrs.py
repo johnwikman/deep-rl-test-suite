@@ -13,7 +13,7 @@ from gym import spaces
 from gym.utils import seeding
 from typing import Optional
 
-from deps.ipm_python.furuta import FurutaODE
+from ipm_furuta import FurutaODE
 
 
 def calc_reward(theta, dthetadt, phi, dphidt, dt=0.02):
@@ -34,7 +34,6 @@ class FurutaPendulumEnv(gym.core.Env):
     """
     OpenAI Gym wrapper for the Furuta pendulum environment.
     """
-    
     # Optional
     metadata = {"render.modes": ["ansi", "human"]}
     #reward_range = (-float("inf"), float("inf"))
