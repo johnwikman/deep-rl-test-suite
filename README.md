@@ -2,6 +2,14 @@
 
 # Requirements
 The following software must be installed before the installation can be performed:
+
+ * python3
+ * ipm-furuta
+ * matplotlib
+ * numpy
+ * pandas
+ * pytorch
+
 - Python 3.7, 3.8, or 3.9.10 
 - ipm-python https://github.com/br4sco/ipm-python
 - pyglet version 1.5.11 or 1.5.14

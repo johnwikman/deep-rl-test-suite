@@ -6,6 +6,7 @@ By: dansah
 """
 
 import gym
+import logging
 import math
 import numpy as np
 
@@ -14,6 +15,9 @@ from gym.utils import seeding
 from typing import Optional
 
 from ipm_furuta import FurutaODE
+
+LOG = logging.getLogger(__name__)
+LOG.addHandler(logging.NullHandler())
 
 
 def calc_reward(theta, dthetadt, phi, dphidt, dt=0.02):
@@ -77,11 +81,10 @@ class FurutaPendulumEnv(gym.core.Env):
         self.c_balance = 50
 
         # Normalization constants
+        self.max_theta = 1.5 * np.pi
         self.max_phi = 2 * np.pi # c_lim is applied to the reward at > 2*pi, anything beyond is therefore doomed
         self.max_rot_speed = 5 * np.pi # a higher speed is unlikely to yield desirable results. not currently used.
 
-        # From PBRSv2
-        self.max_theta = 1.5 * np.pi
     
     def seed(self, seed=None): # Not needed in modern versions of OpenAI Gym
         if seed is not None or self.np_random is None:
@@ -115,7 +118,7 @@ class FurutaPendulumEnv(gym.core.Env):
         """
         torque = action[0]
         if abs(torque) > self.MAX_TORQUE:
-            print("Warning: Maximum Torque exceeded, received value of %d" % torque)
+            LOG.warning("Maximum Torque exceeded, received value of %d" % torque)
         self.internal_state["furuta_ode"].trans(torque, self.DT)
         if self._collect_data:
             new_state = self._get_internal_state()

@@ -32,6 +32,9 @@ LOG_FMT = logging.Formatter("%(asctime)s %(name)s:%(lineno)d [%(levelname)s]: %(
 WORK_DIR = pathlib.Path().resolve()
 BASE_DIR = os.path.join(WORK_DIR, "out")  # The base directory for storing the output of the algorithms.
 
+if not os.path.is_dir(BASE_DIR):
+    os.makedirs(BASE_DIR, mode=0o755)
+
 MODEL_PATH = os.path.join(BASE_DIR, "ddpg_modified.pkl")
 STATS_PATH = os.path.join(BASE_DIR, "ddpg_stats.pkl")
 PLOT_PATH = os.path.join(BASE_DIR, "ddpg_mean_epret.svg")
