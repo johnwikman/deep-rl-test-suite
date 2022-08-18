@@ -20,20 +20,6 @@ LOG = logging.getLogger(__name__)
 LOG.addHandler(logging.NullHandler())
 
 
-def calc_reward(theta, dthetadt, phi, dphidt, dt=0.02):
-    """
-    Calculates a reward for the given state, such that the total
-    reward for a trajectory is the number of seconds for which the 
-    system was in a satisfactory state.
-    NOTE: theta is pi when the vertical arm is upright. The angles should
-    not be wrapped.
-    """
-    reward = dt * (abs(abs(theta) - np.pi) < np.pi / 4) * (abs(phi) < 2*np.pi) * (abs(dthetadt) < 2*np.pi/3)
-    if dphidt is not None:
-        reward *= (abs(dphidt) < 2*np.pi/3)
-    return reward
-
-
 class FurutaPendulumEnv(gym.core.Env):
     """
     OpenAI Gym wrapper for the Furuta pendulum environment.
@@ -122,8 +108,8 @@ class FurutaPendulumEnv(gym.core.Env):
         self.internal_state["furuta_ode"].trans(torque, self.DT)
         if self._collect_data:
             new_state = self._get_internal_state()
-            self._data[-1]["phis"].append(new_state[3])
             self._data[-1]["thetas"].append(new_state[0])
+            self._data[-1]["phis"].append(new_state[1])
 
     def step(self, action):
         """
@@ -139,23 +125,17 @@ class FurutaPendulumEnv(gym.core.Env):
             done (bool): whether the episode has ended, in which case further step() calls will return undefined results
             info (dict): contains auxiliary diagnostic information (helpful for debugging, and sometimes learning)
         """
-        self._old_internal_state = self._get_internal_state()
+        old_state = self._get_internal_state()
         self._internal_step(action)
-        torque = action[0]
-
-        internal_state = self._get_internal_state()
-        theta = internal_state[0]
-        dthetadt = internal_state[1]
-        phi = internal_state[3]
-        dphidt = internal_state[2]
+        new_state = self._get_internal_state()
 
         terminal = self._terminal_reached()
 
         # In the paper, theta_2 (here: theta) is 0 when the arm is hanging down vertically, and positive when rotating counter-clockwise.
         # Similarily, theta_1 (here: phi) is positive when rotating counter-clockwise.
-        reward = self._calc_reward(theta_1=phi, theta_2=(theta - np.pi), dot_theta_2=dthetadt, tau_c=torque, dot_theta_1=dphidt)
+        reward = self._calc_reward(old_state, action, new_state)
 
-        observed_state = self._get_observed_state_from_internal(internal_state)
+        #observed_state = self._get_observed_state_from_internal(internal_state)
 
         # Add information needed for Baselines (at least A2C) and SLM Lab.
         self.epinfo['r'] += reward
@@ -170,7 +150,7 @@ class FurutaPendulumEnv(gym.core.Env):
         if self._collect_data:
             self._data[-1]["total_reward"] = self.epinfo['r']
 
-        return observed_state, reward, terminal, info_dict
+        return new_state, reward, terminal, info_dict
 
     def reset(self, *, seed: Optional[int] = None, options: Optional[dict] = None):
         """
@@ -195,7 +175,7 @@ class FurutaPendulumEnv(gym.core.Env):
         if self._collect_data:
             self._data.append({"phis": [new_state[3]], "thetas": [new_state[0]], "total_reward": 0.0})
 
-        return self._get_observed_state_from_internal(new_state)
+        return self._get_internal_state()
 
     def render(self, mode="human"):
         """
@@ -243,7 +223,6 @@ class FurutaPendulumEnv(gym.core.Env):
                 horizontal_axle.add_attr(rendering.Transform(translation=(offset,0)))
                 self.viewer.add_geom(horizontal_axle)
 
-            
             state = self._get_internal_state()
             self.vertical_arm_transform.set_rotation(state[0] + np.pi / 2) # An angle of 0 means that it points downwards.
             self.horizontal_arm_transform.set_rotation(state[3] + np.pi / 2)
@@ -267,44 +246,62 @@ class FurutaPendulumEnv(gym.core.Env):
         Return the current internal state. The difference against the observed,
         is that Phi is included.
         """
-        internal_state = self.internal_state["furuta_ode"].output(ys=["theta", "dthetadt", "dphidt", "phi"])
-        return np.array([internal_state["theta"], internal_state["dthetadt"], internal_state["dphidt"], internal_state["phi"]])
+        ODE_VARIABLES = ["theta", "phi", "dthetadt", "dphidt"]
+        ode_state = self.internal_state["furuta_ode"].output(ys=ODE_VARIABLES)
+        return np.array([ode_state[y] for y in ODE_VARIABLES])
 
-    def _get_observed_state_from_internal(self, internal_state):
-        """
-        Return the current observed state based on the provided internal.
-        Internal state should be of the form [theta, dthetadt, dphidt, phi].
-        The oberseved state has the form [phi, dphidt, theta, dthetadt].
-        """
-        return np.array([internal_state[3], internal_state[2], internal_state[0] - np.pi, internal_state[1]])
+    #def _get_observed_state_from_internal(self, internal_state):
+    #    """
+    #    Return the current observed state based on the provided internal.
+    #    Internal state should be of the form [theta, dthetadt, dphidt, phi].
+    #    The oberseved state has the form [phi, dphidt, theta, dthetadt].
+    #    """
+    #    return np.array([internal_state[3], internal_state[2], internal_state[0] - np.pi, internal_state[1]])
 
-    def _calc_reward(self, theta_1, theta_2, dot_theta_2, tau_c, dot_theta_1):
+    def _calc_reward(self, old_state, action, new_state): #theta_1, theta_2, dot_theta_2, tau_c, dot_theta_1):
         """
         Calculates the reward.
         """
         if self.non_timelimit_termination:
             return -500 # semi-big negative reward
 
-        def phi_func(theta, dthetadt, phi, dphidt):
+        def R_func(theta, phi, dthetadt, dphidt, dt=0.02):
+            """
+            Calculates a reward for the given state, such that the total
+            reward for a trajectory is the number of seconds for which the 
+            system was in a satisfactory state.
+            NOTE: theta is pi when the vertical arm is upright. The angles should
+            not be wrapped.
+            """
+            reward = dt * (abs(abs(theta - np.pi) - np.pi) < np.pi / 4) * (abs(phi) < 2*np.pi) * (abs(dthetadt) < 2*np.pi/3)
+            if dphidt is not None:
+                reward *= (abs(dphidt) < 2*np.pi/3)
+            return reward
+
+        def phi_func(theta, phi, dthetadt, dphidt):
             """
             NOTE: Theta should be pi when upright vertical.
             """
-            phi_reward = (2*(3*np.pi - abs(abs(theta) - np.pi)) + (3*np.pi - abs(phi)) + \
+            phi_reward = (2*(3*np.pi - abs(abs(theta - np.pi) - np.pi)) + (3*np.pi - abs(phi)) + \
                          np.maximum(-30, 3 - abs(dthetadt)) + np.maximum(-30, 3 - abs(dphidt))) / 10
             return phi_reward
 
-        reward = calc_reward(theta=theta_2, dthetadt=dot_theta_2, phi=theta_1, dphidt=dot_theta_1, dt=10) # Sparse
+        (theta, phi, dthetadt, dphidt) = tuple(new_state)
+        (u,) = tuple(action)
+
+        reward = R_func(*tuple(new_state), dt=10) # Sparse
         # PBRS, as relayed in "Reward Function Design in Reinforcement Learning" by J. Eschmann (2021) and
         # originally detailed in "Policy invariance under reward transformations: Theory and application to reward shaping"
         # by Andrew Y. Ng et al. (1999)
         # R'(s, a, s') = R(s, a, s') + F(s, s')
         # F(s, s') = gamma * Phi(s') - Phi(s)
-        old_theta = self._old_internal_state[0]
-        old_dthetadt = self._old_internal_state[1]
-        old_phi = self._old_internal_state[3]
-        old_dphidt = self._old_internal_state[2]
-        outer_reward = 0.99 * phi_func(theta=theta_2, dthetadt=dot_theta_2, phi=theta_1, dphidt=dot_theta_1) - \
-                       phi_func(theta=old_theta, dthetadt=old_dthetadt, phi=old_phi, dphidt=old_dphidt)
+        #old_theta = self._old_internal_state[0]
+        #old_dthetadt = self._old_internal_state[1]
+        #old_phi = self._old_internal_state[3]
+        #old_dphidt = self._old_internal_state[2]
+        #outer_reward = 0.99 * phi_func(theta=theta_2, dthetadt=dot_theta_2, phi=theta_1, dphidt=dot_theta_1) - \
+        #               phi_func(theta=old_theta, dthetadt=old_dthetadt, phi=old_phi, dphidt=old_dphidt)
+        outer_reward = 0.99 * phi_func(*tuple(new_state)) - phi_func(*tuple(old_state))
 
         return reward + outer_reward
 

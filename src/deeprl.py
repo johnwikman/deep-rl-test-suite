@@ -32,7 +32,7 @@ LOG_FMT = logging.Formatter("%(asctime)s %(name)s:%(lineno)d [%(levelname)s]: %(
 WORK_DIR = pathlib.Path().resolve()
 BASE_DIR = os.path.join(WORK_DIR, "out")  # The base directory for storing the output of the algorithms.
 
-if not os.path.is_dir(BASE_DIR):
+if not os.path.isdir(BASE_DIR):
     os.makedirs(BASE_DIR, mode=0o755)
 
 MODEL_PATH = os.path.join(BASE_DIR, "ddpg_modified.pkl")
@@ -53,7 +53,8 @@ class Critic(nn.Module):
         )
 
     def forward(self, obs, act):
-        qval = self.layers(torch.cat([obs, act], dim=-1))
+        tx_obs = obs - torch.tensor([np.pi, 0.0, 0.0, 0.0]).float()
+        qval = self.layers(torch.cat([tx_obs, act], dim=-1))
         return torch.squeeze(qval, -1) # Critical to ensure q has right shape.
 
 
@@ -70,7 +71,8 @@ class Actor(nn.Module):
         )
 
     def forward(self, obs):
-        return self.layers(obs).mul(200.0)
+        tx_obs = obs - torch.tensor([np.pi, 0.0, 0.0, 0.0]).float()
+        return self.layers(tx_obs).mul(200.0)
 
     def act(self, obs):
         with torch.no_grad():
@@ -211,7 +213,7 @@ if __name__ == "__main__":
     import argparse
     argparser = argparse.ArgumentParser()
     argparser.add_argument("-s", "--seed", type=int, help="The seed to use", default=1993)
-    argparser.add_argument("-i", "--inter", type=int, help="The number of interactions to target", default=500_000)
+    argparser.add_argument("-i", "--inter", type=int, help="The number of interactions to target", default=800_000)
     argparser.add_argument("-p", "--plot", action="store_true", help="Produce plots")
     argparser.add_argument("-t", "--train", action="store_true", help="Perform training")
     argparser.add_argument("-e", "--evaluate", action="store_true", help="Perform evaluation")
