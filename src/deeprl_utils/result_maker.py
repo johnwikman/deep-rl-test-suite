@@ -18,23 +18,25 @@ def add_architecture(html_str, arch_name, diagrams_and_tables):
     additional_str = f"<h3>{arch_name}</h3>"
     additional_str += f"<h3>{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</h3>"
 
+    BORDER_STYLE = "1px solid black"
+
     diagrams = diagrams_and_tables.get("diagrams", {})
     for diagram_name, diagram_path in diagrams.items():
         additional_str += f"<img src=\"{diagram_path}\" alt=\"{diagram_name}\">"
 
     tables = diagrams_and_tables.get("tables", {})
     for table_name, table in tables.items():
-        additional_str += f"<h4>{table_name}</h4><table>"
-        table = tables[table_name]
+        additional_str += f"<h4>{table_name}</h4><table style=\"border: {BORDER_STYLE}; border-spacing: 2px 2px;\">"
         for i in range(len(table)):
             additional_str += "<tr>"
             for j in range(len(table[i])):
+                e = table[i][j]
                 if i == 0:
-                    additional_str += f"<th>{table[i][j]}</th>"
-                elif j == 0:
-                    additional_str += f"<td>{table[i][j]}</td>"
+                    additional_str += f"<th style=\"border: {BORDER_STYLE}; padding: 4px;\">{e}</th>"
+                elif isinstance(e, float):
+                    additional_str += f"<td style=\"border: {BORDER_STYLE}; padding: 4px;\">{e:%.3f}</td>"
                 else:
-                    additional_str += f"<td>{table[i][j]:%.3f}</td>"
+                    additional_str += f"<td style=\"border: {BORDER_STYLE}; padding: 4px;\">{e}</td>"
             additional_str += "</tr>"
         additional_str += "</table>"
 

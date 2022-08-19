@@ -110,8 +110,10 @@ def new_implementation(train=False, plot=False, evaluate=False,
     q = Critic()
     pi = Actor()
 
-    q_opt = torch.optim.Adam(q.parameters(), lr=5e-4)
-    pi_opt = torch.optim.Adam(pi.parameters(), lr=5e-4)
+    q_opt = torch.optim.Adam(q.parameters(), lr=4e-4)
+    pi_opt = torch.optim.Adam(pi.parameters(), lr=4e-4)
+    LOG.info(f"q_opt.defaults: {q_opt.defaults}")
+    LOG.info(f"pi_opt.defaults: {pi_opt.defaults}")
 
     def targ_maker():
         return (Critic(), Actor())
@@ -169,6 +171,14 @@ def new_implementation(train=False, plot=False, evaluate=False,
                         "Arguments": [
                             ["Seed"],
                             [seed]
+                        ],
+                        "Q Optimizer": [
+                            list(sorted(q_opt.defaults.keys())),
+                            [str(q_opt.defaults[k]) for k in sorted(q_opt.defaults.keys())]
+                        ],
+                        "Pi (Policy) Optimizer": [
+                            list(sorted(q_opt.defaults.keys())),
+                            [str(q_opt.defaults[k]) for k in sorted(q_opt.defaults.keys())]
                         ]
                     }
                 }
