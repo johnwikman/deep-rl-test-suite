@@ -135,8 +135,6 @@ class FurutaPendulumEnv(gym.core.Env):
         # Similarily, theta_1 (here: phi) is positive when rotating counter-clockwise.
         reward = self._calc_reward(old_state, action, new_state)
 
-        #observed_state = self._get_observed_state_from_internal(internal_state)
-
         # Add information needed for Baselines (at least A2C) and SLM Lab.
         self.epinfo['r'] += reward
         self.epinfo['l'] += 1
@@ -250,15 +248,7 @@ class FurutaPendulumEnv(gym.core.Env):
         ode_state = self.internal_state["furuta_ode"].output(ys=ODE_VARIABLES)
         return np.array([ode_state[y] for y in ODE_VARIABLES])
 
-    #def _get_observed_state_from_internal(self, internal_state):
-    #    """
-    #    Return the current observed state based on the provided internal.
-    #    Internal state should be of the form [theta, dthetadt, dphidt, phi].
-    #    The oberseved state has the form [phi, dphidt, theta, dthetadt].
-    #    """
-    #    return np.array([internal_state[3], internal_state[2], internal_state[0] - np.pi, internal_state[1]])
-
-    def _calc_reward(self, old_state, action, new_state): #theta_1, theta_2, dot_theta_2, tau_c, dot_theta_1):
+    def _calc_reward(self, old_state, action, new_state):
         """
         Calculates the reward.
         """
@@ -295,12 +285,6 @@ class FurutaPendulumEnv(gym.core.Env):
         # by Andrew Y. Ng et al. (1999)
         # R'(s, a, s') = R(s, a, s') + F(s, s')
         # F(s, s') = gamma * Phi(s') - Phi(s)
-        #old_theta = self._old_internal_state[0]
-        #old_dthetadt = self._old_internal_state[1]
-        #old_phi = self._old_internal_state[3]
-        #old_dphidt = self._old_internal_state[2]
-        #outer_reward = 0.99 * phi_func(theta=theta_2, dthetadt=dot_theta_2, phi=theta_1, dphidt=dot_theta_1) - \
-        #               phi_func(theta=old_theta, dthetadt=old_dthetadt, phi=old_phi, dphidt=old_dphidt)
         outer_reward = 0.99 * phi_func(*tuple(new_state)) - phi_func(*tuple(old_state))
 
         return reward + outer_reward

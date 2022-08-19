@@ -53,7 +53,7 @@ class Critic(nn.Module):
         )
 
     def forward(self, obs, act):
-        tx_obs = obs - torch.tensor([np.pi, 0.0, 0.0, 0.0]).float()
+        tx_obs = obs #- torch.tensor([np.pi, 0.0, 0.0, 0.0]).float()
         qval = self.layers(torch.cat([tx_obs, act], dim=-1))
         return torch.squeeze(qval, -1) # Critical to ensure q has right shape.
 
@@ -71,7 +71,7 @@ class Actor(nn.Module):
         )
 
     def forward(self, obs):
-        tx_obs = obs - torch.tensor([np.pi, 0.0, 0.0, 0.0]).float()
+        tx_obs = obs #- torch.tensor([np.pi, 0.0, 0.0, 0.0]).float()
         return self.layers(tx_obs).mul(200.0)
 
     def act(self, obs):
@@ -79,7 +79,8 @@ class Actor(nn.Module):
             return self.forward(obs).numpy()
 
 
-def new_implementation(seed=0, inter=0, train=False, plot=False, evaluate=False):
+def new_implementation(train=False, plot=False, evaluate=False,
+                       seed=0, inter=0):
     """
     Heavily modified implementation, using a different flow.
     """
@@ -158,7 +159,21 @@ def new_implementation(seed=0, inter=0, train=False, plot=False, evaluate=False)
         plt.savefig(PLOT_PATH)
 
         LOG.info(f"generating {HTML_PATH}")
-        html_dict = {"furuta_pbrs3": {"256_128_relu": {"diagrams": {"Performance": PLOT_PATH}}}}
+        html_dict = {
+            "FurutaPendulumEnv": {
+                "256_128_relu": {
+                    "diagrams": {
+                        "Performance": PLOT_PATH
+                    },
+                    "tables": {
+                        "Arguments": [
+                            ["Seed"],
+                            [seed]
+                        ]
+                    }
+                }
+            }
+        }
         make_html(HTML_PATH, html_dict)
         assert webbrowser.get().open("file://" + HTML_PATH)
 
@@ -212,8 +227,8 @@ def new_implementation(seed=0, inter=0, train=False, plot=False, evaluate=False)
 if __name__ == "__main__":
     import argparse
     argparser = argparse.ArgumentParser()
-    argparser.add_argument("-s", "--seed", type=int, help="The seed to use", default=1993)
-    argparser.add_argument("-i", "--inter", type=int, help="The number of interactions to target", default=800_000)
+    argparser.add_argument("-s", "--seed", type=int, help="The seed to use", default=1000)
+    argparser.add_argument("-i", "--inter", type=int, help="The number of interactions to target", default=500_000)
     argparser.add_argument("-p", "--plot", action="store_true", help="Produce plots")
     argparser.add_argument("-t", "--train", action="store_true", help="Perform training")
     argparser.add_argument("-e", "--evaluate", action="store_true", help="Perform evaluation")
