@@ -31,7 +31,7 @@ class ReplayMemory:
         return random.choices(self.__store, k=k)
 
 
-def ddpg(env, test_env, q, pi, q_optimizer, pi_optimizer, targ_maker, #q_targ, pi_targ,
+def ddpg(env, q, pi, q_optimizer, pi_optimizer, targ_maker, #q_targ, pi_targ,
          steps_per_epoch=4000, epochs=100, min_env_interactions=0,
          replay_size=int(1e6), gamma=0.99, polyak=0.995,
          batch_size=100, start_steps=10000, update_after=1000,

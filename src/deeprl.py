@@ -53,8 +53,7 @@ class Critic(nn.Module):
         )
 
     def forward(self, obs, act):
-        tx_obs = obs #- torch.tensor([np.pi, 0.0, 0.0, 0.0]).float()
-        qval = self.layers(torch.cat([tx_obs, act], dim=-1))
+        qval = self.layers(torch.cat([obs, act], dim=-1))
         return torch.squeeze(qval, -1) # Critical to ensure q has right shape.
 
 
@@ -71,52 +70,51 @@ class Actor(nn.Module):
         )
 
     def forward(self, obs):
-        tx_obs = obs #- torch.tensor([np.pi, 0.0, 0.0, 0.0]).float()
-        return self.layers(tx_obs).mul(200.0)
+        return self.layers(obs).mul(200.0)
 
     def act(self, obs):
         with torch.no_grad():
             return self.forward(obs).numpy()
 
 
-def new_implementation(train=False, plot=False, evaluate=False,
+def mlp_maker():
+    return (Critic(), Actor())
+
+MODEL_MAKERS = {
+    "mlp": mlp_maker
+}
+
+
+def new_implementation(train=False, plot=False, evaluate=False, model="mlp",
                        seed=0, inter=0):
     """
     Heavily modified implementation, using a different flow.
     """
     LOG.info("Setting up environment")
+    from deeprl_utils.envs import FurutaPendulumEnv
 
     torch.manual_seed(seed)
     np.random.seed(seed)
     random.seed(seed)
 
-    def make_env():
-        from deeprl_utils.envs import FurutaPendulumEnv
-        return FurutaPendulumEnv()
+    env = FurutaPendulumEnv()
 
-    env = make_env()
-    test_env = make_env()
+    targ_maker = MODEL_MAKERS[model.lower()]
 
     env.seed(seed)
     env.action_space.seed(seed)
-    test_env.seed(seed)
-    test_env.action_space.seed(seed)
 
     # Sanity check for constants later on
     assert env.MAX_TORQUE == 200.0
     assert len(env.observation_space.low) == 4
     assert len(env.action_space.low) == 1
 
-    q = Critic()
-    pi = Actor()
+    q, pi = targ_maker()
 
     q_opt = torch.optim.Adam(q.parameters(), lr=4e-4)
     pi_opt = torch.optim.Adam(pi.parameters(), lr=4e-4)
     LOG.info(f"q_opt.defaults: {q_opt.defaults}")
     LOG.info(f"pi_opt.defaults: {pi_opt.defaults}")
-
-    def targ_maker():
-        return (Critic(), Actor())
 
     max_ep_len = 501
     num_eval_episodes = 5
@@ -125,7 +123,7 @@ def new_implementation(train=False, plot=False, evaluate=False,
     if train:
         LOG.info("Training")
         from deeprl_utils.ddpg import ddpg as ddpg_custom
-        statistics = ddpg_custom(env, test_env, q, pi, q_opt, pi_opt, targ_maker,
+        statistics = ddpg_custom(env, q, pi, q_opt, pi_opt, targ_maker,
                                  max_ep_len=max_ep_len,
                                  steps_per_epoch=256,
                                  min_env_interactions=inter,
@@ -169,8 +167,8 @@ def new_implementation(train=False, plot=False, evaluate=False,
                     },
                     "tables": {
                         "Arguments": [
-                            ["Seed"],
-                            [seed]
+                            ["Seed", "Model"],
+                            [seed,   model]
                         ],
                         "Q Optimizer": [
                             list(sorted(q_opt.defaults.keys())),
@@ -239,6 +237,7 @@ if __name__ == "__main__":
     argparser = argparse.ArgumentParser()
     argparser.add_argument("-s", "--seed", type=int, help="The seed to use", default=1000)
     argparser.add_argument("-i", "--inter", type=int, help="The number of interactions to target", default=500_000)
+    argparser.add_argument("-m", "--model", type=str.lower, choices=set(MODEL_MAKERS.keys()), help="The model to use", default="mlp")
     argparser.add_argument("-p", "--plot", action="store_true", help="Produce plots")
     argparser.add_argument("-t", "--train", action="store_true", help="Perform training")
     argparser.add_argument("-e", "--evaluate", action="store_true", help="Perform evaluation")
@@ -254,4 +253,4 @@ if __name__ == "__main__":
     else:
         logging.getLogger().setLevel(logging.INFO)
 
-    new_implementation(seed=args.seed, inter=args.inter, train=args.train, plot=args.plot, evaluate=args.evaluate)
+    new_implementation(seed=args.seed, inter=args.inter, model=args.model, train=args.train, plot=args.plot, evaluate=args.evaluate)
