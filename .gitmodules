@@ -1,0 +1,4 @@
+[submodule "submodules/quanser-openai-driver"]
+	path = submodules/quanser-openai-driver
+	url = https://github.com/BlueRiverTech/quanser-openai-driver.git
+	branch = main
