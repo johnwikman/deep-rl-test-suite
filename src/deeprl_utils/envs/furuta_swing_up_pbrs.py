@@ -33,8 +33,9 @@ class FurutaPendulumEnv(gym.core.Env):
         # Required
         self.MAX_TORQUE = 200 # Same as in "A Reinforcement Learning Controller for the Swing-Up of the Furuta Pendulum" by D. Guida et al. (2020)
         self.action_space = spaces.Box(low=np.array([-float(self.MAX_TORQUE)]), high=np.array([float(self.MAX_TORQUE)]), dtype=np.float16) # Experiment with np.float32 vs 16.
+        self.observation_space = spaces.Box(low=-float("inf"), high=float("inf"), shape=(4,), dtype=np.float16)
 
-        self.internal_state = None
+        self._ode_model = None
         self.START_THETA = math.pi # Radians
         self.TIME_LIMIT = 10.0 # Seconds
         self.DT = 0.02 # Time step size in seconds
@@ -53,8 +54,6 @@ class FurutaPendulumEnv(gym.core.Env):
         self.wrap_angles = wrap_angles
         self.is_discrete = False # Used by SLM Lab
         self.seed()
-
-        self.observation_space = spaces.Box(low=-float("inf"), high=float("inf"), shape=(4,), dtype=np.float16)
 
         # Override constants
         self.c1 = -1
@@ -105,7 +104,7 @@ class FurutaPendulumEnv(gym.core.Env):
         torque = action[0]
         if abs(torque) > self.MAX_TORQUE:
             LOG.warning("Maximum Torque exceeded, received value of %d" % torque)
-        self.internal_state["furuta_ode"].trans(torque, self.DT)
+        self._ode_model.trans(torque, self.DT)
         if self._collect_data:
             new_state = self._get_internal_state()
             self._data[-1]["thetas"].append(new_state[0])
@@ -163,10 +162,8 @@ class FurutaPendulumEnv(gym.core.Env):
         self.swung_up = False
 
         # Reset the internal state.
-        self.internal_state = {
-            "furuta_ode": FurutaODE(wrap_angles=self.wrap_angles),
-        }
-        self.internal_state["furuta_ode"].init(theta0=self.START_THETA, m=self.m, l=self.l, r=self.r)
+        self._ode_model = FurutaODE(wrap_angles=self.wrap_angles)
+        self._ode_model.init(theta0=self.START_THETA, m=self.m, l=self.l, r=self.r)
         self.epinfo = {'r': np.float16(0), 'l': np.int16(0)}
 
         new_state = self._get_internal_state()
@@ -245,7 +242,7 @@ class FurutaPendulumEnv(gym.core.Env):
         is that Phi is included.
         """
         ODE_VARIABLES = ["theta", "phi", "dthetadt", "dphidt"]
-        ode_state = self.internal_state["furuta_ode"].output(ys=ODE_VARIABLES)
+        ode_state = self._ode_model.output(ys=ODE_VARIABLES)
         return np.array([ode_state[y] for y in ODE_VARIABLES])
 
     def _calc_reward(self, old_state, action, new_state):
@@ -272,8 +269,10 @@ class FurutaPendulumEnv(gym.core.Env):
             """
             NOTE: Theta should be pi when upright vertical.
             """
-            phi_reward = (2*(3*np.pi - abs(abs(theta - np.pi) - np.pi)) + (3*np.pi - abs(phi)) + \
-                         np.maximum(-30, 3 - abs(dthetadt)) + np.maximum(-30, 3 - abs(dphidt))) / 10
+            phi_reward = (2*(3*np.pi - abs(abs(theta - np.pi) - np.pi)) \
+                       + (3*np.pi - abs(phi))                           \
+                       + max(-30, 3 - abs(dthetadt))                    \
+                       + max(-30, 3 - abs(dphidt))) / 10
             return phi_reward
 
         (theta, phi, dthetadt, dphidt) = tuple(new_state)
@@ -293,17 +292,17 @@ class FurutaPendulumEnv(gym.core.Env):
         """
         Returns true if a terminal state has been reached.
         """
+        vals = self._ode_model.output(ys=["t", "phi", "theta"]) # include "dthetadt", "dphidt" to regulate speed.
+
+        abs_theta = abs(vals["theta"] - np.pi)
+        abs_phi = abs(vals["phi"])
+        time = vals["t"]
+
         # Terminate if the vertical arm was swung up but then fell down.
         if not self.non_timelimit_termination:
-            theta = abs(self.internal_state["furuta_ode"].output(ys=["theta"])["theta"] - np.pi)
-            up_swung = theta > 2/3 * np.pi
+            up_swung = abs_theta > 2/3 * np.pi
             if self.swung_up and not up_swung:
                 self.non_timelimit_termination = True
             self.swung_up = self.swung_up or up_swung
-
-        vals = self.internal_state["furuta_ode"].output(ys=["t", "phi", "theta"]) # include "dthetadt", "dphidt" to regulate speed.
-        abs_theta = abs(vals["theta"] - np.pi) # theta_2 is theta - np.pi.
-        abs_phi = abs(vals["phi"])
         self.non_timelimit_termination = self.non_timelimit_termination or abs_theta > self.max_theta or abs_phi > self.max_phi
-        time = vals["t"]
         return time >= self.TIME_LIMIT or self.non_timelimit_termination
