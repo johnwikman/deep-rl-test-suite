@@ -29,7 +29,7 @@ LOG.addHandler(logging.NullHandler())
 
 LOG_FMT = logging.Formatter("%(asctime)s %(name)s:%(lineno)d [%(levelname)s]: %(message)s")
 
-WORK_DIR = pathlib.Path().resolve()
+WORK_DIR = pathlib.Path(__file__).parent.parent.resolve()
 BASE_DIR = os.path.join(WORK_DIR, "out")  # The base directory for storing the output of the algorithms.
 
 if not os.path.isdir(BASE_DIR):

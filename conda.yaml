@@ -38,3 +38,4 @@ dependencies:
   - matplotlib-base=3.5.3
   - pip:
     - ipm_furuta>=0.0.4
+    - -e ./submodules/quanser-openai-driver
