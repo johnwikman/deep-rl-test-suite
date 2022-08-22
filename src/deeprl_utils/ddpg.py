@@ -39,12 +39,24 @@ def ddpg(env, q, pi, q_optimizer, pi_optimizer, targ_maker, #q_targ, pi_targ,
          log_frequency=2000):
 
     # Set-up logging
+
+    statistics_column_order = [
+        "ElapsedTime", "Epoch", "TotalEnvInteracts",
+        "MeanEpRet", "StdEpRet", "MaxEpRet", "MinEpRet",
+        "MeanQVals", "StdQVals", "MaxQVals", "MinQVals",
+        "MeanEpLen", "MeanLossPi", "MeanLossQ"
+    ]
+
+    statistics_column_width = {
+        col: max(10, len(col)) for col in statistics_column_order
+    }
+
     statistics = pd.DataFrame(
         index=pd.TimedeltaIndex(data=[], name="ElapsedTime"),
-        columns=["Epoch", "EpLen", "TotalEnvInteracts",
-                 "AverageEpRet", "StdEpRet", "MaxEpRet", "MinEpRet",
-                 "AverageQVals", "StdQVals", "MaxQVals", "MinQVals",
-                 "LossPi", "LossQ"]
+        columns=["Epoch", "TotalEnvInteracts",
+                 "MeanEpRet", "StdEpRet", "MaxEpRet", "MinEpRet",
+                 "MeanQVals", "StdQVals", "MaxQVals", "MinQVals",
+                 "MeanEpLen", "MeanLossPi", "MeanLossQ"]
     )
 
     # Determine action space
@@ -218,19 +230,33 @@ def ddpg(env, q, pi, q_optimizer, pi_optimizer, targ_maker, #q_targ, pi_targ,
 
             statistics = pd.concat([statistics, epoch_stats])
 
-            _prev_fmt = pd.options.display.float_format
-            pd.options.display.float_format = '{:,.2f}'.format
+            values = {}
+            flat_es = epoch_stats.reset_index()
+            for col in statistics_column_order:
+                v = flat_es[col].values[0]
+                if isinstance(v, np.timedelta64):
+                    t_ms = v // np.timedelta64(1, "ms")
+                    t_s = t_ms // 1000
+                    t_m = t_s // 60
+                    t_h = t_m // 60
+                    t_d = t_h // 24
+                    values[col] = f"{t_d} days {t_h%24:02d}:{t_m%60:02d}:{t_s%60:02d}.{t_ms%1000:03d}"
+                elif isinstance(v, (float, np.float32)):
+                    values[col] = f"{float(v):.3f}"
+                elif isinstance(v, (int, np.int64)):
+                    values[col] = str(int(v))
+                else:
+                    LOG.warning(f"unknown type: column: {col}, type: {type(v)}")
+                    values[col] = str(v)
 
-            # Log info about epoch
-            lines = str(epoch_stats).split("\n")
-            assert len(lines) == 3
+                if len(values[col]) > statistics_column_width[col]:
+                    statistics_column_width[col] = len(values[col])
+
             if prints_since_columnnames >= 32:
-                LOG.info(lines[0])
-                LOG.info(lines[1])
+                LOG.info(" ".join([col.rjust(statistics_column_width[col]) for col in statistics_column_order]))
                 prints_since_columnnames = 0
-            LOG.info(lines[2])
+            LOG.info(" ".join([values[col].rjust(statistics_column_width[col]) for col in statistics_column_order]))
             prints_since_columnnames += 1
 
-            pd.options.display.float_format = _prev_fmt
 
     return statistics
