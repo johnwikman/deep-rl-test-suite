@@ -23,9 +23,10 @@ class FurutaQube2(QubeSwingupEnv):
         self._alpha_max = OBS_MAX[1]
         self._velocity_max = 5 * 2 * np.pi
         self.DT = 1 / frequency
-        self.MAX_EP_LEN = 2048
         self._collect_data = False
         self._data = []
+
+        self.MAX_EP_LEN = self._max_episode_steps
 
     def step(self, action):
         res = super().step(action)

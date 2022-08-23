@@ -273,7 +273,7 @@ def new_implementation(train=False, plot=False, evaluate=False,
         eval_data = []
         for ep in range(num_eval_episodes):
             o, r, d, ep_ret, ep_len = env.reset(), 0, False, 0, 0
-            for _ in range(max_ep_len):
+            for _ in range(env.MAX_EP_LEN):
                 a = get_action(o)
                 o, r, d, _ = env.step(a)
                 ep_ret += r
