@@ -126,9 +126,14 @@ def qube2sim_maker():
     from deeprl_utils.envs import FurutaQube2
     return FurutaQube2(use_simulator=True)
 
+def qube2phys_maker():
+    from deeprl_utils.envs import FurutaQube2
+    return FurutaQube2(use_simulator=False)
+
 ENV_MAKERS = {
     "ipm": ipm_maker,
-    "qube2.sim": qube2sim_maker
+    "qube2.sim": qube2sim_maker,
+    "qube2.phys": qube2phys_maker
 }
 
 

@@ -34,8 +34,8 @@ class FurutaQube2(QubeSwingupEnv):
             res[0] = self._do_normalize_state(res[0])
         if self._collect_data:
             state, r = res[0], res[1]
-            self._data[-1]["thetas"].append(np.pi - state[0])
-            self._data[-1]["phis"].append(state[1])
+            self._data[-1]["thetas"].append(-state[1])
+            self._data[-1]["phis"].append(state[0])
             self._data[-1]["total_reward"] += r
         return res
 
@@ -44,7 +44,7 @@ class FurutaQube2(QubeSwingupEnv):
         if self._do_normalize_state:
             state = self._normalize_state(state)
         if self._collect_data:
-            self._data.append({"thetas": [np.pi - state[0]], "phis": [state[1]], "total_reward": 0.0})
+            self._data.append({"thetas": [-state[1]], "phis": [state[0]], "total_reward": 0.0})
         return state
 
     def collect_data(self):

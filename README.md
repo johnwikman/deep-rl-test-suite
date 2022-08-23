@@ -41,6 +41,6 @@ python src/deeprl.py -E ipm -M mlp -s 1000 -i 500000 -tp
 To be verified...
 
 ```
-python src/deeprl.py -E qube2.sim -s ??? -i 1000000 -tp
+python src/deeprl.py -E qube2.sim -M mlp_64_64 -i 1000000 -s 1000 --learning-rate 4e-4 -tp
 ```
 
