@@ -116,7 +116,7 @@ class Actor_64_64(Actor):
 def mlp_64_64_maker(env):
     return (Critic_64_64(), Actor_64_64(env))
 
-MODEL_MAKERS["mlp_64_64"] = mlp_maker
+MODEL_MAKERS["mlp_64_64"] = mlp_64_64_maker
 #####################################################
 
 
