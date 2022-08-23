@@ -23,3 +23,24 @@ Train and plot performance:
 ```
 python src/deeprl.py -i 500000 -tp
 ```
+
+
+# Examples
+Some parameter settings that produce decent results for certain environments.
+Note the training is often highly seed sensitive, so the right seed for the
+randomness is crucial.
+
+## FurutaODE (IPM)
+Default MLP (256_128_relu) and seed 1000.
+
+```
+python src/deeprl.py -E ipm -M mlp -s 1000 -i 500000 -tp
+```
+
+## Qube2
+To be verified...
+
+```
+python src/deeprl.py -E qube2.sim -s ??? -i 1000000 -tp
+```
+

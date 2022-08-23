@@ -87,9 +87,7 @@ MODEL_MAKERS["mlp"] = mlp_maker
 #####################################################
 
 
-
 ### Reduced MLP with 64 -> 64 ###
-#################################
 class Critic_64_64(Critic):
     def __init__(self):
         super().__init__()
@@ -117,8 +115,7 @@ def mlp_64_64_maker(env):
     return (Critic_64_64(), Actor_64_64(env))
 
 MODEL_MAKERS["mlp_64_64"] = mlp_64_64_maker
-#####################################################
-
+#################################
 
 
 def ipm_maker():
@@ -137,7 +134,7 @@ ENV_MAKERS = {
 
 def new_implementation(train=False, plot=False, evaluate=False,
                        model="mlp", envname="ipm",
-                       seed=0, inter=0):
+                       seed=0, inter=0, learning_rate=4e-4):
     """
     Heavily modified implementation, using a different flow.
     """
@@ -175,8 +172,8 @@ def new_implementation(train=False, plot=False, evaluate=False,
 
     q, pi = targ_maker(env)
 
-    q_opt = torch.optim.Adam(q.parameters(), lr=4e-4)
-    pi_opt = torch.optim.Adam(pi.parameters(), lr=4e-4)
+    q_opt = torch.optim.Adam(q.parameters(), lr=learning_rate)
+    pi_opt = torch.optim.Adam(pi.parameters(), lr=learning_rate)
     LOG.info(f"q_opt.defaults: {q_opt.defaults}")
     LOG.info(f"pi_opt.defaults: {pi_opt.defaults}")
 
@@ -301,6 +298,7 @@ if __name__ == "__main__":
     argparser = argparse.ArgumentParser()
     argparser.add_argument("-s", "--seed", type=int, help="The seed to use", default=1000)
     argparser.add_argument("-i", "--inter", type=int, help="The number of interactions to target", default=500_000)
+    argparser.add_argument("-l", "--learning-rate", dest="learning_rate", type=float, help="The learning rate to use", default=4e-4)
     argparser.add_argument("-M", "--model", type=str.lower, choices=set(MODEL_MAKERS.keys()), help="The model to use", default="mlp")
     argparser.add_argument("-E", "--environment", type=str.lower, choices=set(ENV_MAKERS.keys()), help="The environment to use", default="ipm")
     argparser.add_argument("-p", "--plot", action="store_true", help="Produce plots")
@@ -318,4 +316,4 @@ if __name__ == "__main__":
     else:
         logging.getLogger().setLevel(logging.INFO)
 
-    new_implementation(seed=args.seed, inter=args.inter, model=args.model, envname=args.environment, train=args.train, plot=args.plot, evaluate=args.evaluate)
+    new_implementation(seed=args.seed, inter=args.inter, learning_rate=args.learning_rate, model=args.model, envname=args.environment, train=args.train, plot=args.plot, evaluate=args.evaluate)
