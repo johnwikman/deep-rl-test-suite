@@ -177,7 +177,6 @@ def new_implementation(train=False, plot=False, evaluate=False,
     LOG.info(f"q_opt.defaults: {q_opt.defaults}")
     LOG.info(f"pi_opt.defaults: {pi_opt.defaults}")
 
-    max_ep_len = 501
     num_eval_episodes = 5
     statistics = None
 
@@ -185,10 +184,10 @@ def new_implementation(train=False, plot=False, evaluate=False,
         LOG.info("Training")
         from deeprl_utils.ddpg import ddpg as ddpg_custom
         statistics = ddpg_custom(env, q, pi, q_opt, pi_opt, targ_maker,
-                                 max_ep_len=max_ep_len,
+                                 max_ep_len=env.MAX_EP_LEN,
                                  steps_per_epoch=256,
                                  min_env_interactions=inter,
-                                 log_frequency=2000,
+                                 log_frequency=4000,
                                  start_steps=10000)
 
         LOG.info(f"Saving model to {MODEL_PATH}")
@@ -197,6 +196,12 @@ def new_implementation(train=False, plot=False, evaluate=False,
 
         LOG.info(f"Saving statistics to {STATS_PATH}")
         with open(STATS_PATH, "wb+") as f:
+            pickle.dump(statistics, f)
+
+        LOG.info(f"Saving to seed-specific files")
+        with open(MODEL_PATH + f".seed-{seed}", "wb+") as f:
+            pickle.dump([q, pi], f)
+        with open(STATS_PATH + f".seed-{seed}", "wb+") as f:
             pickle.dump(statistics, f)
 
     if plot:

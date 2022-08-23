@@ -40,6 +40,8 @@ class FurutaPendulumEnv(gym.core.Env):
         self.TIME_LIMIT = 10.0 # Seconds
         self.DT = 0.02 # Time step size in seconds
 
+        self.MAX_EP_LEN = int(math.ceil(self.TIME_LIMIT / self.DT)) + 1
+
         # The following parameters are from "A Reinforcement Learning Controller for the Swing-Up of the Furuta Pendulum" by D. Guida et al. (2020)
         self.r = 1.0 # meters, length of the horizontal arm
         self.l = 0.5 # meters, half the length of the vertical arm
