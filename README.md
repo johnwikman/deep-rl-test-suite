@@ -16,6 +16,12 @@ If running on Ubuntu 18, it is also necessary to install the
 [HIL driver](https://github.com/quanser/hil_sdk_linux_x86_64). _Tip: Unplug the
 power from the pendulum, then connect USB, and then reconnect power again._
 
+Test that the physical pendulum works by running
+
+```
+python submodules/quanser-openai-driver/tests/test.py --env QubeSwingupEnv --controller flip
+```
+
 # Usage
 
 Train and plot performance:
