@@ -72,7 +72,7 @@ def ddpg(env, q, pi, q_optimizer, pi_optimizer, targ_maker, #q_targ, pi_targ,
         act_limit_upper = env.action_space.high[0]
 
     # Create actor-critic module and target networks
-    q_targ, pi_targ = targ_maker()
+    q_targ, pi_targ = targ_maker(env)
 
     # Experience buffer
     replay_buffer = ReplayMemory(replay_size)

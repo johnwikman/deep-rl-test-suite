@@ -35,12 +35,11 @@ BASE_DIR = os.path.join(WORK_DIR, "out")  # The base directory for storing the o
 if not os.path.isdir(BASE_DIR):
     os.makedirs(BASE_DIR, mode=0o755)
 
-MODEL_PATH = os.path.join(BASE_DIR, "ddpg_modified.pkl")
-STATS_PATH = os.path.join(BASE_DIR, "ddpg_stats.pkl")
-PLOT_PATH = os.path.join(BASE_DIR, "ddpg_mean_epret.svg")
-HTML_PATH = os.path.join(BASE_DIR, "out.html")
+
+MODEL_MAKERS = {}
 
 
+### REGULAR <indim> -> 256 -> 128 -> <outdim> MLP ###
 class Critic(nn.Module):
     def __init__(self):
         super().__init__()
@@ -58,8 +57,13 @@ class Critic(nn.Module):
 
 
 class Actor(nn.Module):
-    def __init__(self):
+    def __init__(self, env):
         super().__init__()
+        self.max_action = env.action_space.high
+        if isinstance(self.max_action, (list, tuple, np.ndarray)):
+            assert len(self.max_action) == 1, f"Expected singleton list, got {self.max_action}"
+            self.max_action = float(self.max_action[0])
+
         self.layers = nn.Sequential(
             nn.Linear(4, 256),
             nn.ReLU(),
@@ -70,46 +74,106 @@ class Actor(nn.Module):
         )
 
     def forward(self, obs):
-        return self.layers(obs).mul(200.0)
+        return self.layers(obs).mul(self.max_action)
 
     def act(self, obs):
         with torch.no_grad():
             return self.forward(obs).numpy()
 
+def mlp_maker(env):
+    return (Critic(), Actor(env))
 
-def mlp_maker():
-    return (Critic(), Actor())
+MODEL_MAKERS["mlp"] = mlp_maker
+#####################################################
 
-MODEL_MAKERS = {
-    "mlp": mlp_maker
+
+
+### Reduced MLP with 64 -> 64 ###
+#################################
+class Critic_64_64(Critic):
+    def __init__(self):
+        super().__init__()
+        self.layers = nn.Sequential(
+            nn.Linear(5, 64),
+            nn.ReLU(),
+            nn.Linear(64, 64),
+            nn.ReLU(),
+            nn.Linear(64, 1)
+        )
+
+class Actor_64_64(Actor):
+    def __init__(self, env):
+        super().__init__(env)
+        self.layers = nn.Sequential(
+            nn.Linear(4, 64),
+            nn.ReLU(),
+            nn.Linear(64, 64),
+            nn.ReLU(),
+            nn.Linear(64, 1),
+            nn.Tanh()
+        )
+
+def mlp_64_64_maker(env):
+    return (Critic_64_64(), Actor_64_64(env))
+
+MODEL_MAKERS["mlp_64_64"] = mlp_maker
+#####################################################
+
+
+
+def ipm_maker():
+    from deeprl_utils.envs import FurutaPendulumEnv
+    return FurutaPendulumEnv()
+
+def qube2sim_maker():
+    from deeprl_utils.envs import FurutaQube2
+    return FurutaQube2(use_simulator=True)
+
+ENV_MAKERS = {
+    "ipm": ipm_maker,
+    "qube2.sim": qube2sim_maker
 }
 
 
-def new_implementation(train=False, plot=False, evaluate=False, model="mlp",
+def new_implementation(train=False, plot=False, evaluate=False,
+                       model="mlp", envname="ipm",
                        seed=0, inter=0):
     """
     Heavily modified implementation, using a different flow.
     """
-    LOG.info("Setting up environment")
-    from deeprl_utils.envs import FurutaPendulumEnv
+    LOG.info(f"model: {model} | envname: {envname} | seed: {seed} | inter: {inter}")
+
+    def strip_pfx(s): return s[:s.find(".")] if "." in s else s
+
+    pfx = f"{strip_pfx(envname)}.{strip_pfx(model)}"
+
+    MODEL_PATH = os.path.join(BASE_DIR, f"{pfx}.ddpg.pkl")
+    STATS_PATH = os.path.join(BASE_DIR, f"{pfx}.ddpg_stats.pkl")
+    PLOT_PATH = os.path.join(BASE_DIR, f"{pfx}.ddpg_mean_epret.svg")
+    HTML_PATH = os.path.join(BASE_DIR, f"{pfx}.out.html")
+
+    LOG.info(f"MODEL_PATH: {MODEL_PATH}")
+    LOG.info(f"STATS_PATH: {STATS_PATH}")
+    LOG.info(f"PLOT_PATH: {PLOT_PATH}")
+    LOG.info(f"HTML_PATH: {HTML_PATH}")
 
     torch.manual_seed(seed)
     np.random.seed(seed)
     random.seed(seed)
 
-    env = FurutaPendulumEnv()
-
+    env_maker = ENV_MAKERS[envname.lower()]
     targ_maker = MODEL_MAKERS[model.lower()]
+
+    env = env_maker()
 
     env.seed(seed)
     env.action_space.seed(seed)
 
     # Sanity check for constants later on
-    assert env.MAX_TORQUE == 200.0
     assert len(env.observation_space.low) == 4
     assert len(env.action_space.low) == 1
 
-    q, pi = targ_maker()
+    q, pi = targ_maker(env)
 
     q_opt = torch.optim.Adam(q.parameters(), lr=4e-4)
     pi_opt = torch.optim.Adam(pi.parameters(), lr=4e-4)
@@ -160,15 +224,15 @@ def new_implementation(train=False, plot=False, evaluate=False, model="mlp",
 
         LOG.info(f"generating {HTML_PATH}")
         html_dict = {
-            "FurutaPendulumEnv": {
+            envname: {
                 "256_128_relu": {
                     "diagrams": {
                         "Performance": PLOT_PATH
                     },
                     "tables": {
                         "Arguments": [
-                            ["Seed", "Model"],
-                            [seed,   model]
+                            ["Seed", "Model", "Environment"],
+                            [seed,   model,   envname]
                         ],
                         "Q Optimizer": [
                             list(sorted(q_opt.defaults.keys())),
@@ -223,7 +287,7 @@ def new_implementation(train=False, plot=False, evaluate=False, model="mlp",
         env.close()
 
         assert collected_data is not None, "No data was collected for rendering!"
-        name = "ddpg - 256_128_relu"
+        name = f"ddpg - {envname}"
         best_episode_idx = np.argmax([d["total_reward"] for d in collected_data]) # Visualize the best episode
         plot_data = collected_data[best_episode_idx]
         plot_animated(phis=plot_data["phis"], thetas=plot_data["thetas"], l_arm=1.0, l_pendulum=1.0,
@@ -237,7 +301,8 @@ if __name__ == "__main__":
     argparser = argparse.ArgumentParser()
     argparser.add_argument("-s", "--seed", type=int, help="The seed to use", default=1000)
     argparser.add_argument("-i", "--inter", type=int, help="The number of interactions to target", default=500_000)
-    argparser.add_argument("-m", "--model", type=str.lower, choices=set(MODEL_MAKERS.keys()), help="The model to use", default="mlp")
+    argparser.add_argument("-M", "--model", type=str.lower, choices=set(MODEL_MAKERS.keys()), help="The model to use", default="mlp")
+    argparser.add_argument("-E", "--environment", type=str.lower, choices=set(ENV_MAKERS.keys()), help="The environment to use", default="ipm")
     argparser.add_argument("-p", "--plot", action="store_true", help="Produce plots")
     argparser.add_argument("-t", "--train", action="store_true", help="Perform training")
     argparser.add_argument("-e", "--evaluate", action="store_true", help="Perform evaluation")
@@ -253,4 +318,4 @@ if __name__ == "__main__":
     else:
         logging.getLogger().setLevel(logging.INFO)
 
-    new_implementation(seed=args.seed, inter=args.inter, model=args.model, train=args.train, plot=args.plot, evaluate=args.evaluate)
+    new_implementation(seed=args.seed, inter=args.inter, model=args.model, envname=args.environment, train=args.train, plot=args.plot, evaluate=args.evaluate)

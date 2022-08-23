@@ -168,7 +168,7 @@ class FurutaPendulumEnv(gym.core.Env):
 
         new_state = self._get_internal_state()
         if self._collect_data:
-            self._data.append({"phis": [new_state[3]], "thetas": [new_state[0]], "total_reward": 0.0})
+            self._data.append({"thetas": [new_state[0]], "phis": [new_state[1]], "total_reward": 0.0})
 
         return self._get_internal_state()
 
