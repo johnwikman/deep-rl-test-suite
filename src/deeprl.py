@@ -130,15 +130,76 @@ def qube2phys_maker():
     from deeprl_utils.envs import FurutaQube2
     return FurutaQube2(use_simulator=False)
 
+def modular_swingup_env_maker():
+    from deeprl_utils.envs.modular.furuta_base import FurutaPendulumEnv
+    import deeprl_utils.envs.modular.distributions as dist
+    TOPCOS = np.cos(np.pi/6)
+    LEEWAY = 0.05
+    swingup = FurutaPendulumEnv(max_torque=200.0)
+    swingup.add_termination(
+        name="Swingup Left",
+        condition=lambda self, t, state:
+            np.sin(state.theta) >= 0.0
+        and np.cos(state.theta) in dist.Normal(TOPCOS, LEEWAY).clip_mu(LEEWAY)
+        and state.dtheta in dist.Range(-2.0, 0.0),
+        reward=500.0
+    )
+    swingup.add_termination(
+        name="Swingup Right",
+        condition=lambda self, t, state:
+            np.sin(state.theta) <= 0.0
+        and np.cos(state.theta) in dist.Normal(TOPCOS, LEEWAY).clip_mu(LEEWAY)
+        and state.dtheta in dist.Range(0.0, 2.0),
+        reward=500.0
+    )
+    swingup.add_termination(
+        name="Pendulum Overspeed Fail",
+        condition=lambda self, t, state:
+            np.cos(state.theta) in dist.Range(0.0, TOPCOS - LEEWAY)
+        and abs(state.dtheta) > 2.0,
+        reward=-500.0
+    )
+    swingup.add_termination(
+        name="Timelimit Exceeded",
+        condition=lambda self, t, state: t > 10.0,
+        reward=-500.0
+    )
+
+    swingup.add_initial_condition(
+        #_weight = 1.0, default 1.0 weight
+        theta  = dist.Normal(mu=np.pi, sigma=0.001),
+        phi    = dist.Normal(mu=0.0,   sigma=0.001),
+        dtheta = dist.Normal(mu=0.0,   sigma=0.001),
+        dphi   = dist.Normal(mu=0.0,   sigma=0.001),
+    )
+
+    swingup.add_dense_reward("Pendulum Kinetic Energy",
+        # mv²/2
+        lambda self, state: 1.0 * state.dtheta * state.dtheta / 2.0
+    )
+
+    return swingup
+
+def modular_halfmoon_swingup_env_maker():
+    halfmoon = modular_swingup_env_maker()
+    halfmoon.add_termination(
+        name="Halfmoon Threshold Fail",
+        condition=lambda self, t, state: np.cos(state.phi) < 0,
+        reward=-500.0
+    )
+    return halfmoon
+
 ENV_MAKERS = {
     "ipm": ipm_maker,
     "qube2.sim": qube2sim_maker,
-    "qube2.phys": qube2phys_maker
+    "qube2.phys": qube2phys_maker,
+    "swingup": modular_swingup_env_maker,
+    "halfmoon-swingup": modular_halfmoon_swingup_env_maker,
 }
 
 
 def new_implementation(train=False, plot=False, evaluate=False,
-                       model="mlp", envname="ipm",
+                       model="mlp", envname="ipm", video_file=None,
                        seed=0, inter=0, learning_rate=4e-4):
     """
     Heavily modified implementation, using a different flow.
@@ -258,7 +319,8 @@ def new_implementation(train=False, plot=False, evaluate=False,
 
     if evaluate:
         LOG.info("Evaluating")
-        from deeprl_utils.visualizer import plot_animated
+        import matplotlib.pyplot as plt
+        from furuta_plot import FurutaPlotter #deeprl_utils.visualizer import plot_animated
 
         if not train:
             LOG.info(f"Loading model from {MODEL_PATH}")
@@ -275,7 +337,6 @@ def new_implementation(train=False, plot=False, evaluate=False,
         env.reset()
         env.collect_data()
 
-        eval_data = []
         for ep in range(num_eval_episodes):
             o, r, d, ep_ret, ep_len = env.reset(), 0, False, 0, 0
             for _ in range(env.MAX_EP_LEN):
@@ -285,8 +346,6 @@ def new_implementation(train=False, plot=False, evaluate=False,
                 ep_len += 1
                 if d:
                     break
-
-            eval_data.append(ep_ret)
             LOG.info(f"Episode {ep} | EpRet {ep_ret:.3f} | EpLen {ep_len}")
 
         env.reset()
@@ -297,8 +356,10 @@ def new_implementation(train=False, plot=False, evaluate=False,
         name = f"ddpg - {envname}"
         best_episode_idx = np.argmax([d["total_reward"] for d in collected_data]) # Visualize the best episode
         plot_data = collected_data[best_episode_idx]
-        plot_animated(phis=plot_data["phis"], thetas=plot_data["thetas"], l_arm=1.0, l_pendulum=1.0,
-                      frame_rate=50, name=name, save_as=None)
+
+        p = FurutaPlotter(plt.figure(), negate_theta=True)
+        p.add_3D()
+        p.animate(fps=50, save_as=video_file, phi=plot_data["phis"], theta=plot_data["thetas"])
 
         LOG.info(f"Independently defined evaluation data: {[d['total_reward'] for d in collected_data]}")
 
@@ -314,6 +375,7 @@ if __name__ == "__main__":
     argparser.add_argument("-p", "--plot", action="store_true", help="Produce plots")
     argparser.add_argument("-t", "--train", action="store_true", help="Perform training")
     argparser.add_argument("-e", "--evaluate", action="store_true", help="Perform evaluation")
+    argparser.add_argument("--video-file", dest="video_file", type=str, default=None, help="Filename to save evaluated pendulum as")
     argparser.add_argument("-v", "--verbose", dest="verbosity", action="count", default=0, help="Increase verbosity of prints.")
     args = argparser.parse_args()
 
@@ -326,4 +388,4 @@ if __name__ == "__main__":
     else:
         logging.getLogger().setLevel(logging.INFO)
 
-    new_implementation(seed=args.seed, inter=args.inter, learning_rate=args.learning_rate, model=args.model, envname=args.environment, train=args.train, plot=args.plot, evaluate=args.evaluate)
+    new_implementation(seed=args.seed, inter=args.inter, learning_rate=args.learning_rate, model=args.model, envname=args.environment, video_file=args.video_file, train=args.train, plot=args.plot, evaluate=args.evaluate)
