@@ -36,6 +36,9 @@ class FurutaPendulumEnv(gym.core.Env):
             "l": 0.5,
             "r": 1.0,
             "g": 9.81,
+            "K": 1.0,
+            "J": 1.0,
+            "Ja": 1.0,
             "wrap_angles": wrap_angles,
         }
 
@@ -47,6 +50,8 @@ class FurutaPendulumEnv(gym.core.Env):
         self.initial_conditions = []
         self.sparse_rewards = {}
         self.dense_rewards = {}
+        self.reset_hooks = {}
+        self.step_hooks = {}
 
         # Misc. OpenAI properties
         self.np_random = None
@@ -117,6 +122,9 @@ class FurutaPendulumEnv(gym.core.Env):
             l=self.ode_parameters["l"],
             r=self.ode_parameters["r"],
             g=self.ode_parameters["g"],
+            K=self.ode_parameters["K"],
+            J=self.ode_parameters["J"],
+            Ja=self.ode_parameters["Ja"],
         )
 
         obs = self._get_current_obs()
@@ -128,11 +136,22 @@ class FurutaPendulumEnv(gym.core.Env):
                 "total_reward": 0.0,
             })
 
+        LOG.debug("running reset hooks")
+        for name, fn in self.reset_hooks.items():
+            fn(self, obs)
+
         return np.array(obs, dtype=np.float32)
 
     def step(self, action):
         """Take a step."""
+        sparse_rewards = 0.0
+        dense_rewards = 0.0   # dense reward (OBRS) = 0.99*fn(next_state) - fn(prev_state)
+
         prev_obs = self._get_current_obs()
+
+        LOG.debug("computing pre-step dense rewards")
+        for name, fn in self.dense_rewards.items():
+            dense_rewards -= fn(self, prev_obs)
 
         LOG.debug("stepping")
         if abs(action[0]) > self.max_torque:
@@ -142,14 +161,17 @@ class FurutaPendulumEnv(gym.core.Env):
 
         next_obs = self._get_current_obs()
 
-        LOG.debug("computing rewards")
-        sparse_rewards = 0.0
+        LOG.debug("running step hooks")
+        for name, fn in self.step_hooks.items():
+            fn(self, prev_obs, action, next_obs)
+
+        LOG.debug("computing sparse rewards")
         for name, fn in self.sparse_rewards.items():
             sparse_rewards += fn(self, prev_obs, action, next_obs)
 
-        dense_rewards = 0.0
+        LOG.debug("computing post-step dense rewards")
         for name, fn in self.dense_rewards.items():
-            dense_rewards += self.discount * fn(self, next_obs) - fn(self, prev_obs)
+            dense_rewards += self.discount * fn(self, next_obs)
 
         step_reward = sparse_rewards + dense_rewards
 
@@ -215,3 +237,17 @@ class FurutaPendulumEnv(gym.core.Env):
     def add_dense_reward(self, name, phi_function):
         """Adds a PBRS reward function to be called as 0.99*Phi(s') - Phi(s)."""
         self.dense_rewards[name] = phi_function
+
+    def add_reset_hook(self, name, hook_function):
+        """
+        Adds a reset hook that is called on each reset. Used for updating the
+        internal state. To be called as f(obj, s)
+        """
+        self.reset_hooks[name] = hook_function
+
+    def add_step_hook(self, name, step_function):
+        """
+        Adds a reset hook that is called on each step. Used for updating the
+        internal state. To be called as f(obj, s, a, s')
+        """
+        self.step_hooks[name] = step_function

@@ -173,10 +173,39 @@ def modular_swingup_env_maker():
         dphi   = dist.Normal(mu=0.0,   sigma=0.001),
     )
 
-    swingup.add_dense_reward("Pendulum Kinetic Energy",
-        # mv²/2
-        lambda self, state: 1.0 * state.dtheta * state.dtheta / 2.0
-    )
+    # Accumulate the energy
+    def _reset_motor_energy(env, state):             env.state["E_total_motor"] = 0.0
+    def _accumulate_motor_energy(env, s, a, s_next): env.state["E_total_motor"] += env.dt * a[0] * env.ode_parameters["K"]
+    swingup.add_reset_hook("Reset Motor Energy", _reset_motor_energy)
+    swingup.add_step_hook("Accumulate Motor Energy", _accumulate_motor_energy)
+
+    def _dense_energy_reward(env, s):
+        # Based on equation 2.4 in https://downloads.hindawi.com/journals/mpe/2010/742894.pdf
+        m  = env.ode_parameters["m"]
+        l  = env.ode_parameters["l"]
+        r  = env.ode_parameters["r"]
+        g  = env.ode_parameters["g"]
+        K  = env.ode_parameters["K"]
+        J  = env.ode_parameters["J"]
+        Ja = env.ode_parameters["Ja"]
+        return (
+            1/2 * float(
+                np.matmul(
+                    np.array([s.dtheta, s.dphi]).reshape(1,2),
+                    np.matmul(
+                        np.array([
+                            [J,                     m*r*l*np.cos(s.theta)],
+                            [m*r*l*np.cos(s.theta), Ja + m*r*r + J*(np.sin(s.theta)**2)]
+                        ]),
+                        np.array([s.dtheta, s.dphi]).reshape(2,1)
+                    )
+                )
+            )
+            + m*g*l*(np.cos(s.theta) - 1)
+            # Change this constant to something between 0 and 1
+            - 0.5 * env.state["E_total_motor"]
+        )
+    swingup.add_dense_reward("Total System Energy - Motor Energy", _dense_energy_reward)
 
     return swingup
 
